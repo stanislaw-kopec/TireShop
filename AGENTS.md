@@ -221,7 +221,11 @@ Wstępny projekt relacji i uzasadnienia znajdują się w `docs/backend-design.md
 
 ## Stan implementacji
 
-Pierwszy etap: konta, profil i adres, zaproszenia pracowników oraz reset haseł przez administratora. Uwierzytelnianie zostało zmienione na JWT Bearer ważny 15 minut, bez refresh tokenów; V3 usuwa nieużywane tabele sesji. Kontrakt: `docs/backend-api.md`. Dalsze zalecenia z materiałów (np. request ID i odseparowanie istniejących wyjątków od HTTP) nie oznaczają, że zostały już wdrożone. Pozostałe funkcje sklepu są nadal wymaganiami do implementacji.
+Pierwszy etap: konta, profil i adres, zaproszenia pracowników oraz reset haseł przez administratora. Uwierzytelnianie zostało zmienione na JWT Bearer ważny 15 minut, bez refresh tokenów; V3 usuwa nieużywane tabele sesji. Kontrakt: `docs/backend-api.md`.
+
+Drugi etap: publiczny katalog z filtrami, paginacją i sortowaniem po cenie; odczyt wszystkich produktów dla personelu; tworzenie i edycja parametrów przez pracownika; cena i dopuszczenie do sprzedaży przez admina; przyjęcia, korekty i historia magazynu. V4 tworzy `manufacturer`, `tire_product`, `inventory` i `inventory_change`. Zdjęcie jest opcjonalnym adresem HTTPS, bez uploadu plików. Nowy produkt i zerowy stan powstają atomowo. Ruch magazynowy wymaga UUID `operationId`; ponowienie tej samej operacji nie zmienia stanu ponownie. Szczegóły walidacji i kontrakt: `docs/catalog-api.md`.
+
+Koszyk, zamówienia, tworzenie i wygaszanie rezerwacji, wydania po zapłacie, płatności i śledzenie pozostają do implementacji. `reserved` jest już chronione ograniczeniem bazy i regułą korekt, ale nie ma jeszcze endpointu tworzącego rezerwacje. Nowe domeny używają błędów niezależnych od HTTP; porządkowanie istniejącego `ApiException` oraz request ID są nadal osobnymi zadaniami.
 
 ## Poza zakresem MVP
 

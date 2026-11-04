@@ -17,7 +17,8 @@ class JwtApiDocumentation {
             api.getComponents().addSecuritySchemes("bearerAuth", new SecurityScheme()
                     .type(SecurityScheme.Type.HTTP).scheme("bearer").bearerFormat("JWT"));
             api.getPaths().forEach((path, item) -> {
-                if (path.startsWith("/api/account/") || path.startsWith("/api/admin/") || path.equals("/api/auth/logout")) {
+                if (path.startsWith("/api/account/") || path.startsWith("/api/admin/")
+                        || path.startsWith("/api/employee/") || path.startsWith("/api/staff/") || path.equals("/api/auth/logout")) {
                     item.readOperations().forEach(operation -> {
                         operation.addSecurityItem(new SecurityRequirement().addList("bearerAuth"));
                         operation.getResponses().addApiResponse("401", new ApiResponse().description("Brak poprawnego tokenu"));

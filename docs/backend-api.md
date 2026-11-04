@@ -117,4 +117,4 @@ Błędy API i filtrów bezpieczeństwa mają format `application/problem+json` z
 - 409: konflikt danych, zajęty e-mail, niedozwolony reset.
 - 503: niedostępna poczta.
 
-Na tym etapie nie ma endpointów katalogu, koszyka, zamówień ani płatności. Nie ma również publicznego „zapomniałem hasła” — zgodnie z zakresem reset inicjuje administrator.
+Katalog i magazyn opisuje [osobny kontrakt](catalog-api.md). Koszyk, zamówienia i płatności pozostają kolejnymi etapami. Nie ma publicznego „zapomniałem hasła” — zgodnie z zakresem reset inicjuje administrator.

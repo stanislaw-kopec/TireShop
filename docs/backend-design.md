@@ -1,8 +1,10 @@
 # TireShop — wstępny projekt backendu i bazy
 
-Stan: projekt z 9 października, aktualizacja uwierzytelniania 4 listopada 2026. Wymagania wiążące są w `AGENTS.md`. Ten dokument nie jest migracją ani deklaracją zaimplementowanych funkcji. Obejmuje backend; Angular jest przyszłym klientem API.
+Stan: projekt z 9 października, aktualizacja uwierzytelniania oraz katalogu i magazynu 4 listopada 2026. Wymagania wiążące są w `AGENTS.md`. Dokument odróżnia bieżącą implementację od dalszego projektu. Obejmuje backend; Angular jest przyszłym klientem API.
 
-Pierwszy etap obejmuje `app_account`, `account_address`, `account_action_token`, rejestrację, JWT Bearer, profil i adres, wyszukiwanie kont przez administratora, zaproszenia i reset haseł. JWT zastąpił sesje HTTP: historyczne V1/V2 pozostają, a V3 usuwa tabele Spring Session. Kontrakt: [backend-api.md](backend-api.md). Pozostałe tabele i procesy poniżej to dalszy projekt, a nie aktualny schemat bazy.
+Pierwszy etap obejmuje `app_account`, `account_address`, `account_action_token`, rejestrację, JWT Bearer, profil i adres, wyszukiwanie kont przez administratora, zaproszenia i reset haseł. JWT zastąpił sesje HTTP: historyczne V1/V2 pozostają, a V3 usuwa tabele Spring Session. Kontrakt: [backend-api.md](backend-api.md).
+
+Drugi etap (V4) dodaje `manufacturer`, `tire_product`, `inventory` i `inventory_change`: katalog publiczny i personelu, parametry produktu, ceny, dopuszczenie sprzedaży, dostawy, korekty oraz historię magazynu. Kontrakt: [catalog-api.md](catalog-api.md). Bieżący schemat ma 7 tabel domenowych. Rezerwacje, koszyk, zamówienia i płatności w poniższym diagramie pozostają dalszym projektem.
 
 ## Przyjęte decyzje
 
@@ -64,7 +66,7 @@ Typy wspólne: identyfikatory `uuid`, kwoty `numeric(12,2)`, czas `timestamptz` 
 | `account_address` / account | `account_id PK/FK`, `recipient_name`, `street`, `building_number`, `apartment_number NULL`, `postal_code`, `city`, `country_code`, `version` | Zero lub jeden adres. Rejestracja bez adresu jest możliwa; adres jest wymagany przy zakupie. |
 | `account_action_token` / account | `id PK`, `account_id FK`, `purpose`, `token_hash UNIQUE`, `created_at`, `expires_at`, `used_at NULL`, `revoked_at NULL` | Reset hasła i ustawienie pierwszego hasła pracownika. Token jednorazowy, związany z celem. Brak jawnego tokenu w tej tabeli. |
 | `manufacturer` / catalog | `id PK`, `name`, `normalized_name UNIQUE` | Jedna marka, np. Dębica. Normalizacja zapobiega duplikatom różniącym się spacjami lub wielkością liter. |
-| `tire_product` / catalog | `id PK`, `manufacturer_id FK`, `model`, `normalized_model`, `width_mm`, `aspect_ratio`, `rim_diameter_in`, `season`, `image_ref NULL`, `price_gross NULL`, `on_sale DEFAULT false`, `created_at`, `updated_at`, `version` | Jeden wariant produktu. Unikalna kombinacja marki, znormalizowanego modelu, rozmiaru i sezonu. Cena dodatnia albo NULL; NULL nie oznacza zera. `on_sale` zmienia tylko admin; włączenie sprzedaży wymaga ustalonej ceny. `image_ref` to adres/referencja do pliku, nie obraz w bazie. |
+| `tire_product` / catalog | `id PK`, `manufacturer_id FK`, `model`, `normalized_model`, `width_mm`, `aspect_ratio`, `rim_diameter_in`, `season`, `image_url NULL`, `price_gross NULL`, `on_sale DEFAULT false`, `created_at`, `updated_at`, `version` | Jeden wariant produktu. Unikalna kombinacja marki, znormalizowanego modelu, rozmiaru i sezonu. Cena dodatnia albo NULL; NULL nie oznacza zera. `on_sale` zmienia tylko admin; włączenie sprzedaży wymaga ustalonej ceny. `image_url` to opcjonalny adres HTTPS, nie obraz w bazie. |
 | `inventory` / inventory | `product_id PK/FK`, `on_hand`, `reserved`, `version`, `updated_at` | `0 <= reserved <= on_hand`. Dostępne = `on_hand - reserved`; nie zapisujemy trzeciego niezależnego licznika. Produkt i stan początkowy 0 tworzone atomowo. |
 | `cart` / cart | `id PK`, `account_id FK NULL UNIQUE`, `guest_owner_key NULL UNIQUE`, `updated_at`, `version` | Dokładnie jeden właściciel: konto albo anonimowy kontekst. Jeden aktywny koszyk klienta. `guest_owner_key` jest wewnętrznym identyfikatorem właściciela; mechanizm przekazania dowodu dostępu gościa wymaga ustalenia po zmianie na JWT. |
 | `cart_item` / cart | `id PK`, `cart_id FK`, `product_id FK`, `quantity` | UNIQUE(cart_id, product_id), quantity > 0. Cena odczytywana z katalogu; koszyk niczego nie rezerwuje. |
@@ -73,11 +75,11 @@ Typy wspólne: identyfikatory `uuid`, kwoty `numeric(12,2)`, czas `timestamptz` 
 | `payment_attempt` / payment | `id PK`, `order_id FK`, `status`, `amount_gross`, `currency`, `created_at`, `finished_at NULL`, `failure_code NULL` | Jedno zamówienie może mieć wiele prób, ale najwyżej jedną oczekującą i jedną udaną. Kwota z zamówienia, nie z przeglądarki. ID próby nie daje prawa zmiany wyniku. |
 | `order_access_token` / order | `id PK`, `order_id FK`, `token_hash UNIQUE`, `created_at`, `expires_at`, `revoked_at NULL` | Wielokrotny odczyt statusu gościa; to inny token niż jednorazowy reset hasła. Pierwszy link wygasa 90 dni po zapłacie; odnowiony link wygasa 90 dni od swojego wydania. Nowy link wysyłany wyłącznie na e-mail zamówienia. |
 | `order_status_history` / order | `id PK`, `order_id FK`, `from_status NULL`, `to_status`, `changed_by FK NULL`, `changed_at`, `reason NULL` | Historia zmian; NULL autora oznacza system, np. płatność lub wygaśnięcie. Tworzona razem ze zmianą statusu. |
-| `inventory_change` / inventory | `id PK`, `product_id FK`, `actor_account_id FK NULL`, `order_item_id FK NULL UNIQUE`, `quantity_delta`, `reason`, `created_at` | Przyjęcia, korekty i wydania po zapłacie. Dla wydania wymagane powiązanie z pozycją zamówienia; dla pozostałych zdarzeń NULL. NULL autora oznacza system. Rezerwacja nie zmienia stanu fizycznego i nie jest wydaniem. |
+| `inventory_change` / inventory | `id PK` (= operationId), `product_id FK`, `actor_account_id FK`, `type`, `quantity_delta`, `reason`, `on_hand_after`, `reserved_after`, `created_at` | Obecnie przyjęcia RECEIPT i korekty CORRECTION, wymagany autor-pracownik. Idempotencja i snapshot stanu po operacji. Docelowo nowa migracja doda wydanie po zapłacie, `order_item_id FK NULL UNIQUE` i opcjonalnego autora-system; tych pól/reguł nie ma jeszcze w V4. Rezerwacja nie jest wydaniem. |
 
 Adres w zamówieniu obejmuje te same pola co `account_address`; w JPA można użyć `@Embeddable`. Nie ma FK do bieżącego adresu konta. Dodatkowych nazwanych adresów i osobnej tabeli przesyłek nie potrzeba przy jednym adresie i jednej przesyłce na zamówienie.
 
-Rejestr magazynu jest dopisywany w tej samej transakcji co zmiana `on_hand`; wcześniejszych wpisów nie edytujemy ani nie usuwamy operacjami aplikacji. Błąd poprawia nowy wpis korekty. Nie tworzymy ogólnego systemu audytu. Indeks `(product_id, created_at)` pozwala odczytać historię danego produktu.
+Rejestr magazynu jest dopisywany w tej samej transakcji co zmiana `on_hand`; wcześniejszych wpisów nie edytujemy ani nie usuwamy operacjami aplikacji. Błąd poprawia nowy wpis korekty. Nie tworzymy ogólnego systemu audytu. Indeks `(product_id, created_at DESC, id)` wspiera paginację historii. Zmiany magazynu blokują wiersz `inventory`, a edycje produktu/ceny/sprzedaży — wiersz `tire_product`. UUID operacji jest unikalny globalnie; powtórzenie z tym samym produktem, autorem i treścią zwraca pierwszy wynik. PK chroni także przed nadpisaniem wpisu przy równoległych żądaniach dla różnych produktów. Błąd zapisu wycofuje stan oraz historię.
 
 ## Dlaczego rezerwacja jest przy zamówieniu
 
@@ -154,7 +156,7 @@ Jeśli akceptujemy outbox: zapis zadania wiadomości razem z zatwierdzeniem zam�
 
 1. Migracje Flyway, globalne błędy, szkic API i testy PostgreSQL. Nie generować całego schematu bez uzgodnienia otwartych decyzji. Fundament i migracje kont są zaimplementowane; V3 usuwa historyczne sesje.
 2. Konta, logowanie JWT, role, właściciel zasobu, zaproszenia/reset. Frontend nie jest potrzebny do testów tego etapu.
-3. Katalog i magazyn wraz z uprawnieniami pracownika/admina; publiczny odczyt katalogu może powstawać równolegle koncepcyjnie.
+3. Katalog i podstawowy magazyn wraz z uprawnieniami pracownika/admina — zaimplementowane w V4. Rezerwacje i wydania sprzedażowe pozostają przy etapach zamówień/płatności.
 4. Koszyk gościa/klienta i bezpieczne łączenie po zalogowaniu.
 5. Zamówienia, snapshoty, dostawa, atomowa rezerwacja i wygaśnięcie; idempotencja checkoutu. Ten sam klucz z inną treścią żądania zwraca konflikt, nie nowe zamówienie.
 6. Symulator płatności, linki gościa i wiadomości. Testy wyścigów oraz duplikatów.
@@ -168,4 +170,4 @@ Nie odkładamy bezpieczeństwa na koniec: późniejsza zmiana właściciela kosz
 - Snapshot adresu i pozycji chroni historię. Produkt bez ceny nie jest kupowalny; wycofanie produktu nie usuwa zamówień.
 - Role zabezpieczają operacje, a właściciel zabezpiecza konkretny koszyk i zamówienie. Gość nie jest rolą konta.
 - Jeden termin rezerwacji obejmuje wszystkie próby. Duplikat udanego wyniku i nowy spóźniony sukces to różne przypadki.
-- Konta i JWT są sprawdzane testami HTTP na osobnym PostgreSQL przez Testcontainers. Migracje i transakcje przyszłych domen sklepu będą wymagały własnej weryfikacji.
+- Konta, JWT, katalog i magazyn są sprawdzane testami HTTP na osobnym PostgreSQL przez Testcontainers. Testy magazynu obejmują ponowienia, równoległe przyjęcia/korekty, ochronę rezerwacji i rollback konfliktów. Migracje i transakcje przyszłych domen sklepu będą wymagały własnej weryfikacji.

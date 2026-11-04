@@ -21,6 +21,33 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
     public record FieldError(String field, String message) {}
 
+    @ExceptionHandler(DomainException.class)
+    ProblemDetail business(DomainException ex, HttpServletRequest request) {
+        HttpStatus status = switch (ex.kind()) {
+            case INVALID_INPUT -> HttpStatus.BAD_REQUEST;
+            case NOT_FOUND -> HttpStatus.NOT_FOUND;
+            case CONFLICT -> HttpStatus.CONFLICT;
+        };
+        return ApiProblems.create(status, ex.code(), ex.getMessage(), request.getRequestURI());
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleTypeMismatch(org.springframework.beans.TypeMismatchException ex,
+            HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        var problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Nieprawidłowy parametr żądania.");
+        problem.setProperty("code", "INVALID_PARAMETER");
+        return handleExceptionInternal(ex, problem, headers, status, request);
+    }
+
+    @Override
+    protected ResponseEntity<Object> handleHandlerMethodValidationException(
+            org.springframework.web.method.annotation.HandlerMethodValidationException ex,
+            HttpHeaders headers, HttpStatusCode status, WebRequest request) {
+        var problem = ProblemDetail.forStatusAndDetail(status, "Nieprawidłowe parametry żądania.");
+        problem.setProperty("code", "VALIDATION_FAILED");
+        return handleExceptionInternal(ex, problem, headers, status, request);
+    }
+
     @ExceptionHandler(ApiException.class)
     ProblemDetail domain(ApiException ex, HttpServletRequest request) {
         return ApiProblems.create(ex.status(), ex.code(), ex.getMessage(), request.getRequestURI());
@@ -55,7 +82,8 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         var problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Popraw nieprawidłowe pola.");
         problem.setProperty("code", "VALIDATION_FAILED");
         List<FieldError> errors = ex.getBindingResult().getFieldErrors().stream()
-                .map(error -> new FieldError(error.getField(), error.getDefaultMessage())).toList();
+                .map(error -> new FieldError(error.getField(), error.isBindingFailure()
+                        ? "Nieprawidłowy typ pola." : error.getDefaultMessage())).toList();
         problem.setProperty("errors", errors);
         return handleExceptionInternal(ex, problem, headers, status, request);
     }

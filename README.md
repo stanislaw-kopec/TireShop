@@ -26,11 +26,13 @@ Domyślny profil `local` uruchamia PostgreSQL 17 oraz Mailpit (lokalny podgląd 
 - OpenAPI: http://localhost:8080/v3/api-docs
 - Podgląd lokalnych zaproszeń i resetów haseł: http://localhost:8025
 
-Pierwszy etap obejmuje konta, logowanie JWT, adresy, zaproszenia pracowników i resetowanie haseł przez administratora. Katalog, magazyn, koszyk, zamówienia i płatności są opisane w projekcie, ale nie są jeszcze zaimplementowane. Backend nie udostępnia strony pod `/`.
+Backend obejmuje konta, logowanie JWT, adresy, zaproszenia pracowników, resetowanie haseł oraz katalog opon i podstawowy magazyn. Pracownik tworzy/edytuje produkty i zapisuje dostawy lub korekty, administrator ustala ceny i dopuszcza sprzedaż. Publiczny katalog ma filtry, paginację i sortowanie po cenie. Koszyk, zamówienia, rezerwacje czasowe i płatności są kolejnymi etapami. Backend nie udostępnia strony pod `/`.
 
 Przełożenie materiałów z laboratoriów na Springa: [zasady laboratoryjne](docs/lab-guidelines.md).
 
-Kontrakt i przykłady wywołań: [API kont i logowania](docs/backend-api.md). Wymagania: [AGENTS.md](AGENTS.md). Projekt bazy: [docs/backend-design.md](docs/backend-design.md).
+Kontrakt i przykłady wywołań: [API kont i logowania](docs/backend-api.md), [API katalogu i magazynu](docs/catalog-api.md). W drugim dokumencie jest instrukcja przygotowania pierwszej oferty przez Swagger. Publiczna lista: http://localhost:8080/api/tires — początkowo pusta. Wymagania: [AGENTS.md](AGENTS.md). Projekt bazy: [docs/backend-design.md](docs/backend-design.md).
+
+Springdoc używa poprawki 3.1.1 ze względu na [błąd generowania schematów parametrów z walidacją w 3.1.0](https://github.com/springdoc/springdoc-openapi/issues/3314), ujawniony przez filtry katalogu. Java i Spring Boot pozostają w dotychczasowych wersjach.
 
 W IntelliJ ustaw `JWT_SECRET` w **Run → Edit Configurations → Environment variables** (wygenerowana wartość Base64 co najmniej 32 losowych bajtów; nie hasło wymyślone ręcznie). Bez poprawnego sekretu start zakończy się czytelnym błędem. Używaj tej samej wartości przy restartach, jeśli wcześniej wydane tokeny mają nadal działać; zmiana klucza je unieważnia. Nie zapisuj sekretu w współdzielonej konfiguracji IDE/Git. Lista ustawień: [backend/.env.example](backend/.env.example); plik jest wzorem, nie konfiguracją automatycznie wczytywaną przez Spring.
 
@@ -48,7 +50,7 @@ docker compose stop
 
 Dla istniejącej bazy ustaw `SPRING_PROFILES_ACTIVE=external` oraz `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`. Profil ten nie uruchamia Dockera. `SERVER_PORT` zmienia port HTTP. Nie zapisuj rzeczywistych haseł w repozytorium. Pliki `.env` nie są automatycznie wczytywane przez Spring — ustaw zmienne w terminalu lub konfiguracji uruchomienia IDE.
 
-Flyway wykonuje migracje z `backend/src/main/resources/db/migration`. V1 tworzy konta, adresy i jednorazowe tokeny. Historyczna V2 tworzyła sesje; V3 usuwa ich dwie techniczne tabele po przejściu na JWT. Dotychczasowe zalogowania sesyjne przestają działać, konta i hasła pozostają. Nie zmieniaj wykonanych V1/V2 ani nie czyść bazy. Hibernate sprawdza zgodność schematu (`ddl-auto=validate`).
+Flyway wykonuje migracje z `backend/src/main/resources/db/migration`. V1 tworzy konta, adresy i jednorazowe tokeny. Historyczna V2 tworzyła sesje; V3 usuwa ich dwie techniczne tabele po przejściu na JWT. V4 dodaje producentów, opony, magazyn i historię zmian stanu. Dotychczasowe zalogowania sesyjne przestają działać, konta i hasła pozostają. Nie zmieniaj wykonanych migracji ani nie czyść bazy. Hibernate sprawdza zgodność schematu (`ddl-auto=validate`).
 
 ## Pierwszy administrator
 
@@ -86,7 +88,7 @@ Z katalogu `backend`:
 .\mvnw.cmd verify
 ```
 
-Testy HTTP używają profilu `test` oraz osobnego PostgreSQL 17 uruchamianego przez Testcontainers. Wymagają działającego Dockera i nie dotykają lokalnej bazy sklepu. Sprawdzają migracje, JWT (w tym błędne i wygasłe tokeny), brak sesji, uprawnienia, CORS, adresy, zaproszenia i resetowanie haseł. Sekret JWT dla testów jest generowany wyłącznie w testach; nie trzeba ustawiać własnego `JWT_SECRET`. Poczta w testach jest zastąpiona kontrolowanym nadajnikiem.
+Testy HTTP używają profilu `test` oraz osobnego PostgreSQL 17 uruchamianego przez Testcontainers. Wymagają działającego Dockera i nie dotykają lokalnej bazy sklepu. Sprawdzają migracje, JWT (w tym błędne i wygasłe tokeny), brak sesji, uprawnienia, CORS, adresy, zaproszenia i resetowanie haseł. Testy katalogu i magazynu obejmują filtry, ceny, niezależność ról, walidację, rejestr zmian, ponowienia i równoległe operacje na stanie. Sekret JWT dla testów jest generowany wyłącznie w testach; nie trzeba ustawiać własnego `JWT_SECRET`. Poczta w testach jest zastąpiona kontrolowanym nadajnikiem.
 
 Wynik budowania: `backend/target/demo-0.0.1-SNAPSHOT.jar`. Przy uruchamianiu JAR zapewnij działającą bazę i użyj profilu `external` z właściwymi zmiennymi połączenia.
 
