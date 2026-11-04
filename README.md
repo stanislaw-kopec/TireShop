@@ -8,6 +8,12 @@ Z katalogu projektu w PowerShell:
 
 ```powershell
 cd backend
+# Jednorazowo w tym terminalu: wygeneruj sekret, bez wyświetlania go w logach.
+$jwtBytes = New-Object byte[] 32
+$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+$rng.GetBytes($jwtBytes)
+$rng.Dispose()
+$env:JWT_SECRET = [Convert]::ToBase64String($jwtBytes)
 .\mvnw.cmd spring-boot:run
 ```
 
@@ -20,9 +26,13 @@ Domyślny profil `local` uruchamia PostgreSQL 17 oraz Mailpit (lokalny podgląd 
 - OpenAPI: http://localhost:8080/v3/api-docs
 - Podgląd lokalnych zaproszeń i resetów haseł: http://localhost:8025
 
-Pierwszy etap obejmuje konta, logowanie sesyjne, adresy, zaproszenia pracowników i resetowanie haseł przez administratora. Katalog, magazyn, koszyk, zamówienia i płatności są opisane w projekcie, ale nie są jeszcze zaimplementowane. Backend nie udostępnia strony pod `/`.
+Pierwszy etap obejmuje konta, logowanie JWT, adresy, zaproszenia pracowników i resetowanie haseł przez administratora. Katalog, magazyn, koszyk, zamówienia i płatności są opisane w projekcie, ale nie są jeszcze zaimplementowane. Backend nie udostępnia strony pod `/`.
+
+Przełożenie materiałów z laboratoriów na Springa: [zasady laboratoryjne](docs/lab-guidelines.md).
 
 Kontrakt i przykłady wywołań: [API kont i logowania](docs/backend-api.md). Wymagania: [AGENTS.md](AGENTS.md). Projekt bazy: [docs/backend-design.md](docs/backend-design.md).
+
+W IntelliJ ustaw `JWT_SECRET` w **Run → Edit Configurations → Environment variables** (wygenerowana wartość Base64 co najmniej 32 losowych bajtów; nie hasło wymyślone ręcznie). Bez poprawnego sekretu start zakończy się czytelnym błędem. Używaj tej samej wartości przy restartach, jeśli wcześniej wydane tokeny mają nadal działać; zmiana klucza je unieważnia. Nie zapisuj sekretu w współdzielonej konfiguracji IDE/Git. Lista ustawień: [backend/.env.example](backend/.env.example); plik jest wzorem, nie konfiguracją automatycznie wczytywaną przez Spring.
 
 W IntelliJ uruchom klasę `com.shop.tire.Application` i wybierz JDK 25. Katalog roboczy może wskazywać główny katalog `TireShop` lub `backend`. Główny `compose.yaml` dołącza konfigurację z `backend/compose.yaml` (wymaga Docker Compose 2.20+); oba korzystają z tej samej bazy i wolumenu. Dla innego katalogu roboczego ustaw zmienną `COMPOSE_FILE` na pełną ścieżkę do `backend/compose.yaml`.
 
@@ -38,7 +48,7 @@ docker compose stop
 
 Dla istniejącej bazy ustaw `SPRING_PROFILES_ACTIVE=external` oraz `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`. Profil ten nie uruchamia Dockera. `SERVER_PORT` zmienia port HTTP. Nie zapisuj rzeczywistych haseł w repozytorium. Pliki `.env` nie są automatycznie wczytywane przez Spring — ustaw zmienne w terminalu lub konfiguracji uruchomienia IDE.
 
-Flyway wykonuje migracje z `backend/src/main/resources/db/migration`: konta, adresy, jednorazowe tokeny oraz techniczne tabele sesji. Hibernate sprawdza zgodność schematu (`ddl-auto=validate`). Sesje są przechowywane przez Spring Session JDBC w PostgreSQL.
+Flyway wykonuje migracje z `backend/src/main/resources/db/migration`. V1 tworzy konta, adresy i jednorazowe tokeny. Historyczna V2 tworzyła sesje; V3 usuwa ich dwie techniczne tabele po przejściu na JWT. Dotychczasowe zalogowania sesyjne przestają działać, konta i hasła pozostają. Nie zmieniaj wykonanych V1/V2 ani nie czyść bazy. Hibernate sprawdza zgodność schematu (`ddl-auto=validate`).
 
 ## Pierwszy administrator
 
@@ -52,15 +62,19 @@ ADMIN_PASSWORD=twoje-silne-hasło-od-12-do-128-znaków
 
 Wprowadź własny poprawny e-mail i hasło. Po pierwszym starcie usuń te zmienne. Inicjalizacja tworzy administratora tylko wtedy, gdy żaden jeszcze nie istnieje; nie zmienia hasła istniejącego konta ani nie nadaje roli administratora istniejącemu klientowi. Bez tych zmiennych aplikacja działa, ale nie tworzy domyślnego administratora.
 
-## Sesje i poczta
+## JWT i poczta
 
-Logowanie używa JSON, sesji w cookie `SESSION` i ochrony CSRF. Przed pierwszą operacją POST/PUT i po logowaniu/wylogowaniu pobierz `GET /api/auth/csrf`, a następnie wysyłaj wartość cookie `XSRF-TOKEN` w nagłówku `X-XSRF-TOKEN`. Cookie sesji jest HttpOnly. Swagger wymaga również pobrania CSRF przed operacjami zapisu.
+Logowanie zwraca JSON z `accessToken`, `tokenType: Bearer` i `expiresIn: 900`. Kolejne chronione żądania wysyłają `Authorization: Bearer <accessToken>`. Nie ma cookie sesji ani pobierania CSRF. W Swaggerze wykonaj logowanie, a następnie wklej sam token w **Authorize**.
 
-Sesja wygasa po 30 minutach bezczynności lub po 8 godzinach od logowania. Po zmianie hasła wszystkie wcześniejsze sesje przestają dawać dostęp. Publiczna rejestracja zawsze tworzy klienta i nie loguje go automatycznie.
+Token wygasa po 15 minutach; nie ma refresh tokenów. Po wygaśnięciu zaloguj się ponownie. Publiczna rejestracja tworzy klienta, ale nie loguje go automatycznie. `POST /api/auth/logout` unieważnia wszystkie dotychczasowe tokeny konta; klient usuwa też token z pamięci. Reset hasła lub wyłączenie konta również odbiera dostęp wcześniejszym tokenom.
+
+Weryfikacja obejmuje HS256, podpis, czas, issuer, audience oraz aktualną rolę/status i wersję uwierzytelnienia konta. Backend nie przechowuje sesji HTTP, ale odczytuje konto, aby móc natychmiast odebrać dostęp. Nie umieszczaj tokenu w URL ani logach. Przyszły Angular powinien domyślnie przechowywać go w pamięci aplikacji.
+
+`JWT_ISSUER` domyślnie wynosi `tireshop`, `JWT_AUDIENCE` — `tireshop-api`, a `JWT_ACCESS_TOKEN_TTL` — `15m` (dopuszczalne 1s–15m). `CORS_ALLOWED_ORIGINS` to lista originów oddzielonych przecinkiem; profil lokalny dopuszcza `http://localhost:4200`, pozostałe profile nie dopuszczają domyślnie obcych originów. Nie wysyłamy credentials/cookies; Angular może też użyć proxy `/api`.
 
 Zaproszenie pracownika jest ważne 24 godziny, reset hasła 30 minut. Wiadomości lokalne trafiają do Mailpit, bez wysyłki do rzeczywistych odbiorców. Link prowadzi domyślnie do przyszłego frontendu `http://localhost:4200/set-password`; do czasu zbudowania Angulara token można odczytać w Mailpit i przekazać do API opisanego w dokumentacji.
 
-W profilu `external` skonfiguruj także `MAIL_HOST`, `MAIL_PORT`, `MAIL_FROM`, opcjonalnie `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_AUTH`, `MAIL_STARTTLS` oraz `PASSWORD_LINK_URL` (stały adres zaufanego frontendu). Poza profilem lokalnym cookie wymaga HTTPS; tylko podczas świadomego lokalnego testu HTTP ustaw `SESSION_COOKIE_SECURE=false`.
+W profilu `external` skonfiguruj także `MAIL_HOST`, `MAIL_PORT`, `MAIL_FROM`, opcjonalnie `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_AUTH`, `MAIL_STARTTLS` oraz `PASSWORD_LINK_URL` (stały adres zaufanego frontendu). Poza lokalnym developmentem przesyłaj JWT wyłącznie przez HTTPS.
 
 W tym etapie wysyłka zaproszeń/resetów jest synchroniczna: brak dostępu do poczty zwraca 503 i wycofuje zmianę tokenu/konta, umożliwiając ponowienie. Nie ma jeszcze trwałej kolejki ani automatycznego ponawiania wysyłki.
 
@@ -72,7 +86,7 @@ Z katalogu `backend`:
 .\mvnw.cmd verify
 ```
 
-Testy HTTP używają profilu `test` oraz osobnego PostgreSQL 17 uruchamianego przez Testcontainers. Wymagają działającego Dockera i nie dotykają lokalnej bazy sklepu. Sprawdzają migracje, sesje, CSRF, uprawnienia, adresy, zaproszenia i resetowanie haseł. Poczta w testach jest zastąpiona kontrolowanym nadajnikiem.
+Testy HTTP używają profilu `test` oraz osobnego PostgreSQL 17 uruchamianego przez Testcontainers. Wymagają działającego Dockera i nie dotykają lokalnej bazy sklepu. Sprawdzają migracje, JWT (w tym błędne i wygasłe tokeny), brak sesji, uprawnienia, CORS, adresy, zaproszenia i resetowanie haseł. Sekret JWT dla testów jest generowany wyłącznie w testach; nie trzeba ustawiać własnego `JWT_SECRET`. Poczta w testach jest zastąpiona kontrolowanym nadajnikiem.
 
 Wynik budowania: `backend/target/demo-0.0.1-SNAPSHOT.jar`. Przy uruchamianiu JAR zapewnij działającą bazę i użyj profilu `external` z właściwymi zmiennymi połączenia.
 

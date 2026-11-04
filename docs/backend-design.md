@@ -1,13 +1,13 @@
 # TireShop — wstępny projekt backendu i bazy
 
-Stan: projekt do omówienia, 9 października 2026. Wymagania wiążące są w `AGENTS.md`. Ten dokument nie jest migracją ani deklaracją zaimplementowanych funkcji. Obejmuje backend; Angular jest przyszłym klientem API.
+Stan: projekt z 9 października, aktualizacja uwierzytelniania 4 listopada 2026. Wymagania wiążące są w `AGENTS.md`. Ten dokument nie jest migracją ani deklaracją zaimplementowanych funkcji. Obejmuje backend; Angular jest przyszłym klientem API.
 
-Pierwszy etap został zaimplementowany: Flyway tworzy `app_account`, `account_address`, `account_action_token` oraz dwie tabele Spring Session JDBC. Działają rejestracja, logowanie, CSRF, profil i adres, wyszukiwanie kont po e-mailu przez administratora, zaproszenia pracowników, reset haseł i opcjonalne utworzenie pierwszego administratora. Kontrakt znajduje się w [backend-api.md](backend-api.md). Pozostałe tabele i procesy poniżej przedstawiają dalszy projekt, a nie aktualny schemat bazy.
+Pierwszy etap obejmuje `app_account`, `account_address`, `account_action_token`, rejestrację, JWT Bearer, profil i adres, wyszukiwanie kont przez administratora, zaproszenia i reset haseł. JWT zastąpił sesje HTTP: historyczne V1/V2 pozostają, a V3 usuwa tabele Spring Session. Kontrakt: [backend-api.md](backend-api.md). Pozostałe tabele i procesy poniżej to dalszy projekt, a nie aktualny schemat bazy.
 
 ## Przyjęte decyzje
 
 - PostgreSQL, jeden backend Spring Boot, pakiety domenowe, Java 25 i DTO jako rekordy.
-- Uwierzytelnianie przez sesję w cookie, bez JWT. Sesja i uprawnienia powstają wcześnie, przed prywatnymi operacjami koszyka i zamówień.
+- Uwierzytelnianie kont przez JWT Bearer, 15 minut ważności, bez refresh tokenów. To zastępuje wcześniejszą decyzję o sesji. Role i kontrola właściciela nadal poprzedzają prywatne operacje koszyka i zamówień.
 - Produkt to marka + model + szerokość + profil + średnica + sezon. Indeksy nośności/prędkości, XL i run-flat pozostają poza MVP.
 - Pracownik tworzy produkty, edytuje parametry i zdjęcia oraz zarządza magazynem. Administrator ustala ceny brutto w PLN i jako jedyny włącza/wyłącza produkty w sprzedaży. Nowy produkt domyślnie nie jest w sprzedaży. Brak ceny oznacza brak możliwości zakupu.
 - Przyjęcia, korekty i wydania towaru zapisujemy w prostym rejestrze `inventory_change`, z autorem, datą, zmianą ilości i powodem, w tej samej transakcji co aktualizację magazynu.
@@ -29,7 +29,7 @@ Katalog z filtrami → koszyk → wybór zakupu gościnnego lub konta → adres 
 
 ## Diagram relacji
 
-Poniższy diagram pokazuje tabele domenowe. Pola złożone, szczegółowe indeksy oraz techniczne tabele Spring Session opisano dalej. `o|` oznacza zero lub jeden, `o{` zero lub wiele, a `|{` jeden lub wiele.
+Poniższy diagram pokazuje docelowe tabele domenowe. Pola złożone i szczegółowe indeksy opisano dalej. Historyczne tabele Spring Session są usuwane przez V3 i nie należą do bieżącego modelu. `o|` oznacza zero lub jeden, `o{` zero lub wiele, a `|{` jeden lub wiele.
 
 ```mermaid
 erDiagram
@@ -60,13 +60,13 @@ Typy wspólne: identyfikatory `uuid`, kwoty `numeric(12,2)`, czas `timestamptz` 
 
 | Tabela / domena | Kluczowe pola | Zasady |
 |---|---|---|
-| `app_account` / account | `id PK`, `email`, `password_hash`, `role`, `status`, `first_name`, `last_name`, `phone`, `created_at`, `updated_at`, `version` | E-mail normalizowany i unikalny bez rozróżniania wielkości liter. Role: CUSTOMER, EMPLOYEE, ADMIN. Propozycja: jedna rola na konto. Status: INVITED, ACTIVE, DISABLED. Hasło może być NULL tylko przed przyjęciem zaproszenia. |
+| `app_account` / account | `id PK`, `email`, `password_hash`, `role`, `status`, `first_name`, `last_name`, `phone`, `created_at`, `updated_at`, `auth_version`, `version` | E-mail normalizowany i unikalny bez rozróżniania wielkości liter. Role: CUSTOMER, EMPLOYEE, ADMIN. Propozycja: jedna rola na konto. Status: INVITED, ACTIVE, DISABLED. Hasło może być NULL tylko przed przyjęciem zaproszenia. |
 | `account_address` / account | `account_id PK/FK`, `recipient_name`, `street`, `building_number`, `apartment_number NULL`, `postal_code`, `city`, `country_code`, `version` | Zero lub jeden adres. Rejestracja bez adresu jest możliwa; adres jest wymagany przy zakupie. |
 | `account_action_token` / account | `id PK`, `account_id FK`, `purpose`, `token_hash UNIQUE`, `created_at`, `expires_at`, `used_at NULL`, `revoked_at NULL` | Reset hasła i ustawienie pierwszego hasła pracownika. Token jednorazowy, związany z celem. Brak jawnego tokenu w tej tabeli. |
 | `manufacturer` / catalog | `id PK`, `name`, `normalized_name UNIQUE` | Jedna marka, np. Dębica. Normalizacja zapobiega duplikatom różniącym się spacjami lub wielkością liter. |
 | `tire_product` / catalog | `id PK`, `manufacturer_id FK`, `model`, `normalized_model`, `width_mm`, `aspect_ratio`, `rim_diameter_in`, `season`, `image_ref NULL`, `price_gross NULL`, `on_sale DEFAULT false`, `created_at`, `updated_at`, `version` | Jeden wariant produktu. Unikalna kombinacja marki, znormalizowanego modelu, rozmiaru i sezonu. Cena dodatnia albo NULL; NULL nie oznacza zera. `on_sale` zmienia tylko admin; włączenie sprzedaży wymaga ustalonej ceny. `image_ref` to adres/referencja do pliku, nie obraz w bazie. |
 | `inventory` / inventory | `product_id PK/FK`, `on_hand`, `reserved`, `version`, `updated_at` | `0 <= reserved <= on_hand`. Dostępne = `on_hand - reserved`; nie zapisujemy trzeciego niezależnego licznika. Produkt i stan początkowy 0 tworzone atomowo. |
-| `cart` / cart | `id PK`, `account_id FK NULL UNIQUE`, `guest_owner_key NULL UNIQUE`, `updated_at`, `version` | Dokładnie jeden właściciel: konto albo anonimowy kontekst. Jeden aktywny koszyk klienta. `guest_owner_key` trzymany w sesji po stronie serwera, nie jest publicznym tokenem API. |
+| `cart` / cart | `id PK`, `account_id FK NULL UNIQUE`, `guest_owner_key NULL UNIQUE`, `updated_at`, `version` | Dokładnie jeden właściciel: konto albo anonimowy kontekst. Jeden aktywny koszyk klienta. `guest_owner_key` jest wewnętrznym identyfikatorem właściciela; mechanizm przekazania dowodu dostępu gościa wymaga ustalenia po zmianie na JWT. |
 | `cart_item` / cart | `id PK`, `cart_id FK`, `product_id FK`, `quantity` | UNIQUE(cart_id, product_id), quantity > 0. Cena odczytywana z katalogu; koszyk niczego nie rezerwuje. |
 | `customer_order` / order | `id PK`, `order_number UNIQUE`, `account_id FK NULL`, `guest_owner_key NULL`, `status`, `contact_email`, `contact_phone`, pola adresu dostawy, `currency`, `items_total_gross`, `shipping_gross`, `total_gross`, `created_at`, `reservation_expires_at`, `paid_at NULL`, `tracking_number NULL`, `shipped_at NULL`, `delivered_at NULL`, `cancellation_reason NULL`, `checkout_key UNIQUE`, `checkout_request_hash`, `version` | Dokładnie jeden właściciel podczas zakupu: konto albo kontekst gościa. Zamówienie gościa nie tworzy fikcyjnego konta. Adres i kontakt są kopią z chwili zakupu. `checkout_key` chroni przed podwójnym kliknięciem zakupu; wynik dostępny tylko uprawnionemu właścicielowi. |
 | `order_item` / order | `id PK`, `order_id FK`, `product_id FK`, `quantity`, `manufacturer_name`, `model`, `width_mm`, `aspect_ratio`, `rim_diameter_in`, `season`, `unit_price_gross`, `line_total_gross` | UNIQUE(order_id, product_id), quantity > 0. Dane opisowe i cena są niezmiennym snapshotem. FK nie zastępuje kopii. |
@@ -106,40 +106,36 @@ To projekt algorytmu, nie obietnica poprawności bez testów: potrzebny test na 
 - Katalog: indeks po rozmiarze, osobno po marce; indeksy sortowania dobierz do rzeczywistych zapytań. Nie twórz wszystkich kombinacji filtrów na zapas.
 - CHECK nie wymusi automatycznie co najmniej jednej pozycji ani zgodności `reserved` z oczekującymi zamówieniami. Egzekwuj je przez transakcje, testy i ograniczenie zapisów do operacji domenowych.
 
-## Uwierzytelnianie: sesja z cookie
+## Uwierzytelnianie: JWT Bearer
 
-Wybrano sesję. Dla jednego backendu obsługującego własną aplikację Angular jest to prostszy punkt startu niż utrzymywanie access tokenów, refresh tokenów, rotacji i unieważniania JWT. REST nie wymaga JWT. To ocena dopasowania do tego projektu, a nie uniwersalna przewaga sesji.
+Decyzja użytkownika z 4 listopada 2026: JWT zgodnie z materiałami na zajęcia; ważność 15 minut, bez refresh tokenów. Sesje JDBC i cookie SESSION zostały usunięte z mechanizmu logowania.
 
-| Wariant | Konsekwencja dla projektu |
-|---|---|
-| Sesja w cookie — wybrana | Losowy identyfikator w przeglądarce, stan logowania po stronie backendu; naturalna obsługa wylogowania i unieważniania sesji. |
-| JWT | Potrzebny projekt czasu życia, odświeżania, kradzieży i unieważniania tokenów; sensowniejszy przy konkretnych wymaganiach zewnętrznych klientów lub integracji z dostawcą tożsamości. |
+- `POST /api/auth/login` sprawdza e-mail i hasło, zwraca `accessToken`, `tokenType: Bearer`, `expiresIn: 900`. Kolejne chronione żądania przekazują token tylko w nagłówku Authorization. Po wygaśnięciu trzeba zalogować się ponownie.
+- Spring Security Resource Server sprawdza HS256, podpis, wymagane claims, czas ważności, issuer i audience. Payload zawiera UUID konta, rolę, `authVersion`, czas oraz identyfikator tokenu; nie ma w nim hasła, e-maila ani adresu dostawy. JWT jest podpisany, nie zaszyfrowany.
+- Sekret Base64 co najmniej 32 losowych bajtów pochodzi z `JWT_SECRET`; brak lub błędna konfiguracja blokuje start. Nie wprowadzamy hasła/sekretu domyślnego ani cichej rotacji przy każdym restarcie.
+- `auth_version` w bazie pozwala odebrać dostęp już wydanym JWT. `POST /api/auth/logout` i ustawienie nowego hasła zwiększają wersję; wylogowanie dotyczy wszystkich wcześniejszych tokenów konta. Stan ACTIVE i zgodność roli także są sprawdzane przy uwierzytelnieniu. To jawny kompromis: bez sesji HTTP, ale z odczytem konta w bazie, aby odebranie dostępu działało od razu.
+- Role nadal są rozłączne; identyfikator właściciela pochodzi z uwierzytelnienia, nie z żądania klienta. Reset hasła/zaproszenie używa osobnego jednorazowego losowego tokenu z hashem w bazie.
+- Brak cookie uwierzytelniającego i Basic auth pozwala wyłączyć CSRF dla obecnego API. Nie oznacza to, że JWT umieszczony w cookie automatycznie chroni przed CSRF. Przyszły dostęp gościa oparty o cookie trzeba zabezpieczyć osobno.
+- Angular może działać pod tym samym originem (proxy) albo z jawną listą CORS (lokalnie localhost:4200), bez credentials. Planowany magazyn JWT w przeglądarce to pamięć aplikacji; odświeżenie strony bez zachowanego tokenu wymaga logowania. Frontend pozostaje poza tym etapem.
+- Bootstrap administratora, PBKDF2 i lokalny Mailpit pozostają. Zaproszenia: 24 godziny, reset: 30 minut, wysyłka synchroniczna. Kolejka poczty przy płatnościach nadal jest osobną propozycją.
 
-Konfiguracja bezpieczeństwa:
+Kontrakt i konfiguracja: [API](backend-api.md), [README](../README.md). Przełożenie materiałów laboratoryjnych: [lab-guidelines.md](lab-guidelines.md).
 
-- Spring Security; hasła przez `PasswordEncoder`, bez własnej kryptografii. Uwierzytelnianie, CSRF, role i kontrola właściciela także w testach API.
-- Cookie sesji `HttpOnly`, `Secure` na HTTPS, `SameSite=Lax`; ochrona przed session fixation przy logowaniu. Nie przechowuj identyfikatora sesji w localStorage. Cookie HttpOnly ogranicza możliwość jego odczytu przez JavaScript, ale nie usuwa całego ryzyka XSS. [OWASP: zarządzanie sesją](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html).
-- Angular i API docelowo pod tym samym originem, API pod `/api`; lokalnie przyszły frontend może używać proxy. Jeżeli originy będą różne, jawna lista dozwolonych originów i obsługa credentials; nie `*`. To założenie wdrożeniowe do potwierdzenia.
-- Pozostaw ochronę CSRF. Spring wspiera konwencję `XSRF-TOKEN` / `X-XSRF-TOKEN`. Cookie tokenu CSRF odczytywane przez Angular to osobne cookie od HttpOnly cookie sesji. Po logowaniu/wylogowaniu potrzebne jest pobranie aktualnego tokenu. [Spring Security: SPA i CSRF](https://docs.spring.io/spring-security/reference/servlet/exploits/csrf.html).
-- Angular wspiera wysyłanie tokenu XSRF dla odpowiednich żądań; backend musi go sprawdzać. Szczegóły originów trzeba dopasować przed integracją, nie wyłączać CSRF dla wygody. [Angular: bezpieczeństwo HTTP](https://angular.dev/best-practices/security).
-- Zaimplementowano Spring Session JDBC na tej samej bazie, by restart backendu nie kończył wszystkich sesji. Techniczne tabele `SPRING_SESSION` i `SPRING_SESSION_ATTRIBUTES` pochodzą ze schematu biblioteki; nie tworzymy własnych encji JPA sesji ani własnego magazynu sesji. [Spring Session JDBC](https://docs.spring.io/spring-session/reference/configuration/jdbc.html).
-- Pierwszy etap używa 30 minut bezczynności i maksymalnie 8 godzin od logowania, bez „zapamiętaj mnie”. Parametry są konfigurowalne. `auth_version` konta wzrasta po ustawieniu nowego hasła; porównanie z wersją zapisaną w sesji odbiera dostęp wszystkim wcześniejszym sesjom. Wyłączenie konta również odbiera dostęp przy następnym żądaniu.
-- Opcjonalny bootstrap tworzy pierwszego administratora z danych środowiskowych, bez hasła domyślnego i bez zmiany istniejących kont. Zaproszenia są ważne 24 godziny, linki resetu 30 minut. Lokalnie wiadomości trafiają do Mailpit. Wysyłka w tym etapie jest synchroniczna; błąd SMTP wycofuje wydanie tokenu. Kolejka poczty dla płatności pozostaje osobną propozycją.
+## Koszyk gościa, JWT konta i link śledzenia
 
-Minimalny kontrakt: pobranie CSRF, rejestracja, logowanie, wylogowanie, `GET /api/account/me`, zmiana własnego adresu oraz rozpoczęcie/zakończenie resetu. JSON i statusy 401/403 zamiast przekierowania na HTML logowania. JWT i tabela refresh tokenów nie są potrzebne w wybranym wariancie.
+JWT dotyczy zalogowanego konta. Gość nie ma fikcyjnego konta ani takiego JWT. Poprzedni projekt wiązał go z anonimową sesją; po zmianie logowania nie należy bez uzgodnienia przywracać tego mechanizmu.
 
-## Koszyk, zakup gościa i link do śledzenia to różne uprawnienia
+Przed implementacją koszyka trzeba wybrać dowód dostępu gościa, jego przechowywanie i czas życia (np. losowy token ograniczony do koszyka, sprawdzany po skrócie). Cookie wymaga rozpatrzenia CSRF, a token w pamięci przeglądarki — zachowania po odświeżeniu strony. `guest_owner_key` w ERD jest wewnętrznym powiązaniem, nie dowodem dostępu podawanym dowolnie przez klienta. To otwarta decyzja, bez implementowania teraz dodatkowego mechanizmu.
 
-1. Gość ma anonimowy kontekst w sesji. Backend wiąże z nim koszyk i jego zamówienia oczekujące na zapłatę. Przeglądarka nie wybiera sobie właściciela przez parametr `accountId` czy `guestOwnerKey`.
-2. Przy logowaniu rotacja sesji zachowuje dozwolony kontekst gościa. Połączenie koszyków jest atomowe, sumuje ilości i usuwa/scaleniowo zamyka źródło dokładnie raz. Równoczesne żądania logowania nie mogą podwoić ilości.
-3. Gdy suma przewyższa stan, propozycja zachowania UX: zachowaj żądaną ilość i zwróć konflikt dostępności dla pozycji; nie usuwaj ani nie zmniejszaj sztuk po cichu. Zakup pozostaje zablokowany do poprawienia koszyka. Sam merge nie rezerwuje towaru.
-4. Przed zapłatą gość może rozpocząć/ponowić płatność tylko dla zamówienia własnego kontekstu. Endpoint symulatora również sprawdza to uprawnienie — znajomość ID próby nie wystarczy.
-5. Po zapłacie osobny token śledzenia daje tylko odczyt statusu i numeru przesyłki. Nie loguje na konto, nie pozwala płacić, anulować, edytować adresu ani oglądać wszystkich danych zamówienia.
-6. Baza przechowuje skrót losowego tokenu śledzenia. Jawny token trafia do uprawnionego odbiorcy; filtrujemy go z logów i nie umieszczamy danych osobowych w samym tokenie.
-7. Nie przypisuj historycznego zamówienia gościa do nowego konta tylko dlatego, że e-maile są identyczne. To wymaga osobnej, zweryfikowanej operacji, której nie ma w MVP.
-8. Link początkowy wygasa 90 dni od zapłaty. Nowy link można wysłać tylko na zapisany e-mail zamówienia i ma on 90 dni ważności od wydania. Publiczne żądanie ponownej wysyłki nie zwraca tokenu ani nie ujawnia istnienia zamówienia; wymaga ograniczenia częstotliwości. Samo anonimowe żądanie nie powinno unieważniać jeszcze działającego linku, aby osoba postronna nie mogła odbierać dostępu odbiorcy.
+Niezależnie od wyboru pozostają reguły:
 
-Koszyk jest zapisany w bazie, ale dostęp gościa zależy od życia anonimowej sesji. Dłuższe zachowanie anonimowego koszyka wymaga osobnej decyzji o cookie i retencji. Utrata sesji przed zapłatą oznacza w tym projekcie brak dostępu do oczekującego zamówienia i jego wygaśnięcie po 15 minutach; już otrzymany link po zapłacie działa niezależnie od sesji.
+1. Właściciela ustala backend. Logowanie nie gubi koszyka; scalanie sumuje ilości i wykonuje się dokładnie raz, także przy ponowieniu/równoległości.
+2. Jeśli suma przekracza dostępność, propozycja UX to pokazanie konfliktu i zablokowanie zakupu do poprawienia ilości; bez cichego usuwania pozycji. Koszyk niczego nie rezerwuje.
+3. Płatność można rozpocząć/ponowić tylko dla zamówienia własnego kontekstu. ID zamówienia/próby nie daje dostępu. Logowanie po złożeniu zamówienia nie zmienia jego właściciela.
+4. Link po zapłacie to osobny losowy token dający wyłącznie odczyt statusu i numeru przesyłki. Działa niezależnie od JWT konta i kontekstu koszyka, nie pozwala edytować ani płacić.
+5. W bazie zapisujemy hash tokenu śledzenia; jawny link otrzymuje wyłącznie uprawniony odbiorca. Linku nie wolno logować. Ważność: 90 dni od zapłaty, po odnowieniu 90 dni od wydania; wysyłka tylko na zapisany e-mail zamówienia.
+6. Odnowienie nie ujawnia tokenu w publicznym API ani istnienia zamówienia i podlega ograniczeniu częstotliwości. Anonimowe żądanie nie powinno unieważniać wciąż działającego linku.
+7. Utrata dostępu do kontekstu gościa przed zapłatą nie pozwala przejąć zamówienia samym numerem/e-mailem. Nieopłacone zamówienie wygaśnie po 15 minutach; sposób odzyskania kontekstu należy ustalić wraz z koszykiem.
 
 ## Rzeczy przydatne, lecz jeszcze do zatwierdzenia
 
@@ -156,8 +152,8 @@ Jeśli akceptujemy outbox: zapis zadania wiadomości razem z zatwierdzeniem zam�
 
 ## Kolejność implementacji i granice projektu
 
-1. Migracje Flyway, globalne błędy, szkic API i testy PostgreSQL. Nie generować całego schematu bez uzgodnienia otwartych decyzji. Fundament oraz migracje kont i sesji są zaimplementowane.
-2. Konta, logowanie sesyjne, CSRF, role, właściciel zasobu, zaproszenia/reset. Frontend nie jest potrzebny do testów tego etapu.
+1. Migracje Flyway, globalne błędy, szkic API i testy PostgreSQL. Nie generować całego schematu bez uzgodnienia otwartych decyzji. Fundament i migracje kont są zaimplementowane; V3 usuwa historyczne sesje.
+2. Konta, logowanie JWT, role, właściciel zasobu, zaproszenia/reset. Frontend nie jest potrzebny do testów tego etapu.
 3. Katalog i magazyn wraz z uprawnieniami pracownika/admina; publiczny odczyt katalogu może powstawać równolegle koncepcyjnie.
 4. Koszyk gościa/klienta i bezpieczne łączenie po zalogowaniu.
 5. Zamówienia, snapshoty, dostawa, atomowa rezerwacja i wygaśnięcie; idempotencja checkoutu. Ten sam klucz z inną treścią żądania zwraca konflikt, nie nowe zamówienie.
@@ -172,4 +168,4 @@ Nie odkładamy bezpieczeństwa na koniec: późniejsza zmiana właściciela kosz
 - Snapshot adresu i pozycji chroni historię. Produkt bez ceny nie jest kupowalny; wycofanie produktu nie usuwa zamówień.
 - Role zabezpieczają operacje, a właściciel zabezpiecza konkretny koszyk i zamówienie. Gość nie jest rolą konta.
 - Jeden termin rezerwacji obejmuje wszystkie próby. Duplikat udanego wyniku i nowy spóźniony sukces to różne przypadki.
-- Konta i sesje są sprawdzane testami HTTP na osobnym PostgreSQL przez Testcontainers. Migracje i transakcje przyszłych domen sklepu będą wymagały własnej weryfikacji.
+- Konta i JWT są sprawdzane testami HTTP na osobnym PostgreSQL przez Testcontainers. Migracje i transakcje przyszłych domen sklepu będą wymagały własnej weryfikacji.

@@ -3,6 +3,10 @@ package com.shop.tire;
 import java.net.*;
 import java.net.http.*;
 import java.time.Duration;
+import java.time.Instant;
+import java.security.SecureRandom;
+import org.springframework.security.oauth2.jwt.*;
+import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.regex.Pattern;
@@ -30,11 +34,14 @@ import static org.mockito.Mockito.*;
 @ActiveProfiles("test")
 @Testcontainers
 class AccountIntegrationTests {
+    private static final String JWT_SECRET = newSecret();
+
     @Container
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17");
 
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry registry) {
+        registry.add("app.jwt.secret", () -> JWT_SECRET);
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
@@ -45,7 +52,7 @@ class AccountIntegrationTests {
     @Autowired JdbcTemplate jdbc;
     @Autowired PasswordEncoder encoder;
     @Autowired org.springframework.context.ApplicationContext context;
-    @Autowired org.springframework.session.FindByIndexNameSessionRepository<? extends org.springframework.session.Session> sessions;
+    @Autowired JwtEncoder jwtEncoder;
     @MockitoBean JavaMailSender mail;
 
     private static final String PASSWORD = "Testing password 123!";
@@ -60,8 +67,11 @@ class AccountIntegrationTests {
             var docs = client.get("/v3/api-docs");
             assertThat(docs.statusCode()).isEqualTo(200);
             assertThat(body(docs).path("paths").has("/api/auth/logout")).isTrue();
+            assertThat(body(docs).at("/components/securitySchemes/bearerAuth/scheme").asText()).isEqualTo("bearer");
+            assertThat(body(docs).path("paths").has("/api/auth/csrf")).isFalse();
+            assertThat(jdbc.queryForObject("select count(*) from information_schema.tables where table_schema='public' and table_name like 'spring_session%'", Integer.class)).isZero();
             assertThat(client.get("/swagger-ui/index.html").statusCode()).isEqualTo(200);
-            assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where success", Integer.class)).isEqualTo(2);
+            assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where success", Integer.class)).isEqualTo(3);
         }
     }
 
@@ -83,10 +93,8 @@ class AccountIntegrationTests {
     }
 
     @Test
-    void rejectsMissingCsrfRoleInjectionAndInvalidFieldsWithoutLeakingSecrets() throws Exception {
+    void rejectsRoleInjectionAndInvalidFieldsWithoutLeakingSecrets() throws Exception {
         try (var client = new Client()) {
-            var csrf = client.raw("POST", "/api/auth/register", registration(email()), false);
-            assertProblem(csrf, 403, "INVALID_CSRF_TOKEN");
             var forged = new HashMap<String, Object>(registration(email()));
             forged.put("role", "ADMIN");
             assertProblem(client.post("/api/auth/register", forged), 400, "INVALID_REQUEST");
@@ -99,23 +107,29 @@ class AccountIntegrationTests {
     }
 
     @Test
-    void loginPersistsSessionRotatesItAndLogoutRemovesAccess() throws Exception {
+    void loginIssuesJwtWithoutSessionAndLogoutRevokesAllTokens() throws Exception {
         String email = fixture("CUSTOMER");
-        try (var client = new Client()) {
+        try (var client = new Client(); var other = new Client()) {
             assertProblem(client.post("/api/auth/login", Map.of("email", email, "password", "wrong password")),
                     401, "AUTHENTICATION_FAILED");
             var login = client.login(email, PASSWORD);
             assertThat(login.statusCode()).isEqualTo(200);
-            String firstSession = client.cookie("SESSION");
-            assertThat(firstSession).isNotBlank();
-            assertThat(login.headers().allValues("set-cookie")).anyMatch(cookie ->
-                    cookie.startsWith("SESSION=") && cookie.contains("HttpOnly") && cookie.contains("SameSite=Lax"));
-            assertThat(client.get("/api/account/me").statusCode()).isEqualTo(200);
-            assertThat(jdbc.queryForObject("select count(*) from spring_session where principal_name = ?", Integer.class, email)).isEqualTo(1);
-            assertThat(client.login(email, PASSWORD).statusCode()).isEqualTo(200);
-            assertThat(client.cookie("SESSION")).isNotEqualTo(firstSession);
+            assertThat(body(login).get("tokenType").asText()).isEqualTo("Bearer");
+            assertThat(body(login).get("expiresIn").asLong()).isEqualTo(900);
+            assertThat(login.headers().allValues("set-cookie")).isEmpty();
+            var payload = json.readTree(Base64.getUrlDecoder().decode(client.token.split("\\.")[1]));
+            assertThat(payload.get("sub").asText()).isEqualTo(id(email).toString());
+            assertThat(payload.get("role").asText()).isEqualTo("CUSTOMER");
+            assertThat(payload.toString()).doesNotContain("password", "email", "firstName");
+            var me = client.get("/api/account/me");
+            assertThat(me.statusCode()).isEqualTo(200);
+            assertThat(me.headers().allValues("set-cookie")).isEmpty();
+            other.login(email, PASSWORD);
+            assertThat(other.token).isNotEqualTo(client.token);
             assertThat(client.post("/api/auth/logout", Map.of()).statusCode()).isEqualTo(204);
-            assertThat(client.get("/api/account/me").statusCode()).isEqualTo(401);
+            assertProblem(client.get("/api/account/me"), 401, "AUTHENTICATION_REQUIRED");
+            assertProblem(other.get("/api/account/me"), 401, "AUTHENTICATION_REQUIRED");
+            assertThat(client.login(email, PASSWORD).statusCode()).isEqualTo(200);
         }
     }
 
@@ -172,7 +186,7 @@ class AccountIntegrationTests {
     }
 
     @Test
-    void passwordResetInvalidatesAllExistingSessionsAndOldPassword() throws Exception {
+    void passwordResetInvalidatesAllExistingTokensAndOldPassword() throws Exception {
         String customer = fixture("CUSTOMER");
         try (var admin = new Client(); var old = new Client(); var other = new Client(); var reset = new Client()) {
             admin.login(fixture("ADMIN"), PASSWORD);
@@ -180,8 +194,8 @@ class AccountIntegrationTests {
             other.login(customer, PASSWORD);
             assertThat(admin.post("/api/admin/accounts/" + id(customer) + "/password-reset", Map.of()).statusCode()).isEqualTo(204);
             assertThat(reset.post("/api/auth/password-actions/complete", completion(sentToken())).statusCode()).isEqualTo(204);
-            assertProblem(old.get("/api/account/me"), 401, "SESSION_EXPIRED");
-            assertProblem(other.get("/api/account/me"), 401, "SESSION_EXPIRED");
+            assertProblem(old.get("/api/account/me"), 401, "AUTHENTICATION_REQUIRED");
+            assertProblem(other.get("/api/account/me"), 401, "AUTHENTICATION_REQUIRED");
             assertThat(reset.login(customer, PASSWORD).statusCode()).isEqualTo(401);
             assertThat(reset.login(customer, NEW_PASSWORD).statusCode()).isEqualTo(200);
         }
@@ -226,8 +240,6 @@ class AccountIntegrationTests {
             admin.login(fixture("ADMIN"), PASSWORD);
             admin.post("/api/admin/accounts/" + id(customer) + "/password-reset", Map.of());
             String token = sentToken();
-            a.get("/api/auth/csrf");
-            b.get("/api/auth/csrf");
             var first = CompletableFuture.supplyAsync(() -> uncheckedComplete(a, token));
             var second = CompletableFuture.supplyAsync(() -> uncheckedComplete(b, token));
             assertThat(List.of(first.join(), second.join())).containsExactlyInAnyOrder(204, 400);
@@ -246,18 +258,18 @@ class AccountIntegrationTests {
     }
 
     @Test
-    void disabledAccountCannotUseExistingSession() throws Exception {
+    void disabledAccountCannotUseExistingToken() throws Exception {
         String customer = fixture("CUSTOMER");
         try (var user = new Client()) {
             user.login(customer, PASSWORD);
             jdbc.update("update app_account set status = 'DISABLED' where email = ?", customer);
-            assertProblem(user.get("/api/account/me"), 401, "SESSION_EXPIRED");
+            assertProblem(user.get("/api/account/me"), 401, "AUTHENTICATION_REQUIRED");
             assertThat(user.login(customer, PASSWORD).statusCode()).isEqualTo(401);
         }
     }
 
     private int uncheckedComplete(Client client, String token) {
-        try { return client.raw("POST", "/api/auth/password-actions/complete", completion(token), true).statusCode(); }
+        try { return client.raw("POST", "/api/auth/password-actions/complete", completion(token)).statusCode(); }
         catch (Exception ex) { throw new RuntimeException(ex); }
     }
 
@@ -275,20 +287,85 @@ class AccountIntegrationTests {
     }
 
     @Test
-    void absoluteSessionTimeoutRequiresNewLogin() throws Exception {
-        String email = fixture("CUSTOMER");
+    void rejectsExpiredTamperedUnsignedWrongAlgorithmAndInvalidClaims() throws Exception {
+        UUID accountId = id(fixture("CUSTOMER"));
+        var now = Instant.now();
+        var valid = claims(accountId);
+        String validToken = sign(valid.build(), MacAlgorithm.HS256);
+        String[] parts = validToken.split("\\.");
+        String tamperedPayload = new String(Base64.getUrlDecoder().decode(parts[1]), java.nio.charset.StandardCharsets.UTF_8)
+                .replace("CUSTOMER", "ADMIN");
+        String tampered = parts[0] + "." + Base64.getUrlEncoder().withoutPadding().encodeToString(tamperedPayload.getBytes(java.nio.charset.StandardCharsets.UTF_8)) + "." + parts[2];
+        String none = Base64.getUrlEncoder().withoutPadding().encodeToString("{\"alg\":\"none\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8)) + "." + parts[1] + ".";
+        var invalid = List.of(
+                "not-a-token", tampered, none,
+                sign(valid.build(), MacAlgorithm.HS512),
+                sign(claims(accountId).issuedAt(now.minusSeconds(100)).expiresAt(now.minusSeconds(1)).build(), MacAlgorithm.HS256),
+                sign(claims(accountId).issuer("untrusted").build(), MacAlgorithm.HS256),
+                sign(claims(accountId).audience(List.of("another-api")).build(), MacAlgorithm.HS256),
+                sign(claims(accountId).subject("invalid-uuid").build(), MacAlgorithm.HS256),
+                sign(claims(accountId).claim("authVersion", -1).build(), MacAlgorithm.HS256),
+                sign(claims(accountId).claim("role", "ADMIN").build(), MacAlgorithm.HS256),
+                sign(claims(accountId).claims(values -> values.remove("exp")).build(), MacAlgorithm.HS256),
+                sign(claims(accountId).claims(values -> values.remove("authVersion")).build(), MacAlgorithm.HS256));
         try (var client = new Client()) {
-            client.login(email, PASSWORD);
-            expireSession(sessions, email);
-            assertProblem(client.get("/api/account/me"), 401, "SESSION_EXPIRED");
+            for (String token : invalid) {
+                client.token = token;
+                var response = client.get("/api/account/me");
+                assertProblem(response, 401, "AUTHENTICATION_REQUIRED");
+                assertThat(response.headers().firstValue("www-authenticate")).contains("Bearer");
+                assertThat(response.body()).doesNotContain(token);
+            }
         }
     }
 
-    private <S extends org.springframework.session.Session> void expireSession(
-            org.springframework.session.FindByIndexNameSessionRepository<S> repository, String email) {
-        S session = repository.findByPrincipalName(email).values().iterator().next();
-        session.setAttribute("tireshop.loginTime", java.time.Instant.now().minus(Duration.ofHours(9)));
-        repository.save(session);
+    @Test
+    void acceptsCredentialsOnlyFromBearerHeader() throws Exception {
+        try (var client = new Client()) {
+            client.login(fixture("CUSTOMER"), PASSWORD);
+            String token = client.token;
+            client.token = null;
+            assertThat(client.get("/api/account/me?access_token=" + token).statusCode()).isEqualTo(401);
+            var request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/account/me"))
+                    .header("Cookie", "SESSION=old-session; access_token=" + token).GET().build();
+            assertThat(client.http.send(request, HttpResponse.BodyHandlers.ofString()).statusCode()).isEqualTo(401);
+            assertThat(client.get("/api/account/me").statusCode()).isEqualTo(401);
+        }
+    }
+
+    @Test
+    void corsAllowsOnlyConfiguredAngularOrigin() throws Exception {
+        try (var client = new Client()) {
+            for (String origin : List.of("http://localhost:4200", "https://untrusted.example")) {
+                var request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/account/me"))
+                        .header("Origin", origin).header("Access-Control-Request-Method", "PUT")
+                        .header("Access-Control-Request-Headers", "authorization,content-type")
+                        .method("OPTIONS", HttpRequest.BodyPublishers.noBody()).build();
+                var response = client.http.send(request, HttpResponse.BodyHandlers.ofString());
+                if (origin.equals("http://localhost:4200")) {
+                    assertThat(response.statusCode()).isEqualTo(200);
+                    assertThat(response.headers().firstValue("access-control-allow-origin")).contains(origin);
+                    assertThat(response.headers().firstValue("access-control-allow-credentials")).isEmpty();
+                } else {
+                    assertThat(response.statusCode()).isEqualTo(403);
+                }
+            }
+        }
+    }
+
+    private JwtClaimsSet.Builder claims(UUID accountId) {
+        var now = Instant.now();
+        return JwtClaimsSet.builder().issuer("tireshop").audience(List.of("tireshop-api"))
+                .subject(accountId.toString()).id(UUID.randomUUID().toString()).issuedAt(now).expiresAt(now.plusSeconds(900))
+                .claim("role", "CUSTOMER").claim("authVersion", 0L);
+    }
+    private String sign(JwtClaimsSet claims, MacAlgorithm algorithm) {
+        return jwtEncoder.encode(JwtEncoderParameters.from(JwsHeader.with(algorithm).type("JWT").build(), claims)).getTokenValue();
+    }
+    private static String newSecret() {
+        byte[] bytes = new byte[64];
+        new SecureRandom().nextBytes(bytes);
+        return Base64.getEncoder().encodeToString(bytes);
     }
 
     private String fixture(String role) {
@@ -318,16 +395,20 @@ class AccountIntegrationTests {
     }
 
     private class Client implements AutoCloseable {
-        final CookieManager cookies = new CookieManager(null, CookiePolicy.ACCEPT_ALL);
-        final HttpClient http = HttpClient.newBuilder().cookieHandler(cookies).connectTimeout(Duration.ofSeconds(5)).build();
-        HttpResponse<String> get(String path) throws Exception { return raw("GET", path, null, false); }
-        HttpResponse<String> post(String path, Object value) throws Exception { get("/api/auth/csrf"); return raw("POST", path, value, true); }
-        HttpResponse<String> put(String path, Object value) throws Exception { get("/api/auth/csrf"); return raw("PUT", path, value, true); }
-        HttpResponse<String> login(String email, String password) throws Exception { return post("/api/auth/login", Map.of("email", email, "password", password)); }
-        String cookie(String name) { return cookies.getCookieStore().getCookies().stream().filter(c -> c.getName().equals(name)).map(HttpCookie::getValue).findFirst().orElse(""); }
-        HttpResponse<String> raw(String method, String path, Object value, boolean csrf) throws Exception {
+        String token;
+        final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
+        HttpResponse<String> get(String path) throws Exception { return raw("GET", path, null); }
+        HttpResponse<String> post(String path, Object value) throws Exception { return raw("POST", path, value); }
+        HttpResponse<String> put(String path, Object value) throws Exception { return raw("PUT", path, value); }
+        HttpResponse<String> login(String email, String password) throws Exception {
+            token = null;
+            var response = post("/api/auth/login", Map.of("email", email, "password", password));
+            if (response.statusCode() == 200) token = body(response).get("accessToken").asText();
+            return response;
+        }
+        HttpResponse<String> raw(String method, String path, Object value) throws Exception {
             var builder = HttpRequest.newBuilder(URI.create("http://localhost:" + port + path)).timeout(Duration.ofSeconds(20));
-            if (csrf) builder.header("X-XSRF-TOKEN", cookie("XSRF-TOKEN"));
+            if (token != null) builder.header("Authorization", "Bearer " + token);
             var publisher = value == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(json.writeValueAsString(value));
             return http.send(builder.header("Content-Type", "application/json").method(method, publisher).build(), HttpResponse.BodyHandlers.ofString());
         }

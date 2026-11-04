@@ -3,9 +3,11 @@ package com.shop.tire.security;
 import com.shop.tire.account.AccountAuthenticationService;
 import com.shop.tire.shared.error.ApiProblems;
 import jakarta.servlet.DispatcherType;
-import java.time.*;
-import java.util.*;
+import java.time.Clock;
+import java.util.List;
+import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.*;
@@ -13,12 +15,12 @@ import org.springframework.security.authentication.dao.DaoAuthenticationProvider
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.crypto.password.*;
+import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.session.*;
-import org.springframework.security.web.context.*;
-import org.springframework.security.web.csrf.*;
-import org.springframework.security.web.access.intercept.AuthorizationFilter;
+import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.web.cors.*;
 
 @Configuration
 @EnableMethodSecurity
@@ -39,49 +41,51 @@ public class SecurityConfiguration {
     }
 
     @Bean
-    CookieCsrfTokenRepository csrfTokens(@Value("${app.security.cookie-secure}") boolean secure) {
-        var repository = CookieCsrfTokenRepository.withHttpOnlyFalse();
-        repository.setCookieCustomizer(cookie -> cookie.secure(secure).sameSite("Lax").path("/"));
-        return repository;
-    }
-
-    @Bean
-    SecurityContextRepository securityContextRepository() { return new HttpSessionSecurityContextRepository(); }
-
-    @Bean
-    SessionAuthenticationStrategy loginSessionStrategy(CookieCsrfTokenRepository csrfTokens) {
-        return new CompositeSessionAuthenticationStrategy(List.of(
-                new ChangeSessionIdAuthenticationStrategy(), new CsrfAuthenticationStrategy(csrfTokens)));
+    CorsConfigurationSource corsConfigurationSource(@Value("${app.cors.allowed-origins:}") List<String> origins) {
+        var configuration = new CorsConfiguration();
+        if (origins.contains("*")) throw new IllegalStateException("CORS requires explicit allowed origins.");
+        configuration.setAllowedOrigins(origins);
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        configuration.setAllowCredentials(false);
+        var source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/api/**", configuration);
+        return source;
     }
 
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http, ApiProblems problems,
-            CookieCsrfTokenRepository csrfTokens, SecurityContextRepository contexts,
-            AccountAuthenticationService accounts, Clock clock,
-            @Value("${app.security.absolute-session-timeout}") Duration absoluteTimeout) throws Exception {
+            JwtAccountConverter accounts,
+            @Qualifier("corsConfigurationSource") CorsConfigurationSource cors) throws Exception {
+        AuthenticationEntryPoint unauthorized = (req, res, ex) -> {
+            res.setHeader("WWW-Authenticate", "Bearer");
+            problems.write(req, res, HttpStatus.UNAUTHORIZED, "AUTHENTICATION_REQUIRED",
+                    "Wymagany jest poprawny, niewygasły token Bearer.");
+        };
+        AccessDeniedHandler forbidden = (req, res, ex) -> problems.write(req, res, HttpStatus.FORBIDDEN,
+                "ACCESS_DENIED", "Brak uprawnień.");
         return http
-                .csrf(csrf -> csrf.spa().csrfTokenRepository(csrfTokens))
-                .securityContext(context -> context.securityContextRepository(contexts))
+                // Only an explicit Authorization header authenticates requests; cookies are not credentials.
+                .csrf(AbstractHttpConfigurer::disable)
+                .cors(config -> config.configurationSource(cors))
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .requestCache(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
+                .logout(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
-                        .requestMatchers("/api/auth/csrf", "/api/auth/register", "/api/auth/login",
-                                "/api/auth/password-actions/complete", "/api/hello", "/actuator/health",
-                                "/actuator/health/**", "/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
+                        .requestMatchers("/api/auth/register", "/api/auth/login", "/api/auth/password-actions/complete",
+                                "/api/hello", "/actuator/health", "/actuator/health/**",
+                                "/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
+                        .requestMatchers("/api/auth/logout").authenticated()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/account/**").authenticated()
                         .anyRequest().denyAll())
-                .exceptionHandling(errors -> errors
-                        .authenticationEntryPoint((req, res, ex) -> problems.write(req, res, HttpStatus.UNAUTHORIZED,
-                                "AUTHENTICATION_REQUIRED", "Zaloguj się, aby uzyskać dostęp."))
-                        .accessDeniedHandler((req, res, ex) -> problems.write(req, res, HttpStatus.FORBIDDEN,
-                                ex instanceof CsrfException ? "INVALID_CSRF_TOKEN" : "ACCESS_DENIED",
-                                ex instanceof CsrfException ? "Brak poprawnego tokenu CSRF." : "Brak uprawnień.")))
-                .logout(logout -> logout.logoutUrl("/api/auth/logout")
-                        .logoutSuccessHandler((req, res, auth) -> res.setStatus(204)))
-                .addFilterBefore(new SessionValidityFilter(accounts, problems, clock, absoluteTimeout), AuthorizationFilter.class)
+                .exceptionHandling(errors -> errors.authenticationEntryPoint(unauthorized).accessDeniedHandler(forbidden))
+                .oauth2ResourceServer(resource -> resource
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(accounts))
+                        .authenticationEntryPoint(unauthorized).accessDeniedHandler(forbidden))
                 .build();
     }
 }

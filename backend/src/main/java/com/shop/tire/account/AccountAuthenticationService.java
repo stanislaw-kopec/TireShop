@@ -1,5 +1,7 @@
 package com.shop.tire.account;
 
+import java.util.UUID;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.userdetails.*;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,8 +22,17 @@ public class AccountAuthenticationService implements UserDetailsService {
     }
 
     @Transactional(readOnly = true)
-    public boolean isCurrent(AccountPrincipal principal) {
-        return accounts.findById(principal.accountId()).filter(account ->
-                account.status == AccountStatus.ACTIVE && account.authVersion == principal.authVersion()).isPresent();
+    public AccountPrincipal authenticateToken(UUID id, long authVersion, String role) {
+        var account = accounts.findById(id).filter(value -> value.status == AccountStatus.ACTIVE
+                && value.authVersion == authVersion && value.role.name().equals(role))
+                .orElseThrow(() -> new BadCredentialsException("Account unavailable"));
+        return new AccountPrincipal(account.id, account.email, "", account.role.name(), true, account.authVersion);
+    }
+
+    @Transactional
+    public void logoutAll(AccountPrincipal principal) {
+        var account = accounts.findLockedById(principal.accountId())
+                .orElseThrow(() -> new BadCredentialsException("Account unavailable"));
+        if (account.authVersion == principal.authVersion()) account.authVersion++;
     }
 }

@@ -6,6 +6,10 @@ Backend prostej aplikacji sklepu internetowego z oponami. Ten dokument obowiązu
 
 Sekcje „Ustalone wymagania” i „Zasady techniczne” są wiążące. Sekcja „Propozycje do omówienia” zawiera pomysły, które nie rozszerzają automatycznie zakresu MVP. Przy kolejnych decyzjach użytkownika aktualizuj dokument.
 
+Projekt jest realizowany w Spring Boot na zajęcia, których materiały pokazują ExpressJS. Przenoś zasady projektowania, a nie składnię JavaScriptu ani listę bibliotek. Podstawą dostosowania są materiały 01–04: REST API; architektura, walidacja i błędy; PostgreSQL, migracje i transakcje; uwierzytelnianie, autoryzacja i konfiguracja. Ich omówienie i różnice względem Springa zapisano w `docs/lab-guidelines.md`.
+
+Decyzja z 4 listopada 2026: JWT zastępuje wcześniejsze logowanie sesyjne. Access token jest ważny 15 minut; po wygaśnięciu wymagane jest ponowne logowanie. Nie dodawaj refresh tokenów w tym etapie.
+
 ## Ustalone wymagania funkcjonalne
 
 ### Katalog opon
@@ -117,7 +121,11 @@ Logowanie jest dostępne podczas przeglądania katalogu, w koszyku i przed zło�
 - Nie twórz interfejsu dla każdej klasy, bazowych serwisów CRUD ani ogólnych frameworków na zapas. Abstrakcja powinna rozwiązywać aktualny problem.
 - Współdziel rzeczywiste reguły biznesowe, ale nie łącz niezależnych domen tylko dlatego, że ich kod wygląda podobnie.
 - Kontrolery obsługują HTTP, serwisy realizują przypadki użycia i transakcje, repozytoria odpowiadają za zapis i odczyt. Logiki biznesowej nie umieszczaj w kontrolerach.
+- Przepływ: mapowanie endpointu i walidacja → kontroler → serwis → repozytorium → PostgreSQL. Kontroler nie wywołuje bezpośrednio repozytorium ani SQL. Repozytorium nie decyduje o rolach, kosztach dostawy czy dopuszczalnych zmianach statusu.
+- Serwis przyjmuje zwykłe dane, identyfikator/tożsamość wykonawcy i zwraca wynik albo błąd domenowy. Nie przekazuj do niego `HttpServletRequest`, `HttpServletResponse` ani `ResponseEntity`. Status HTTP ustala kontroler lub globalny handler; nowe błędy domenowe nie powinny wymagać od serwisu wyboru kodu HTTP. Istniejący `ApiException(HttpStatus, ...)` jest uproszczeniem do uporządkowania przy pracy nad obsługą błędów, a nie wzorcem dla nowych domen.
+- Dozwolone zmiany statusów opisuj jawnie, np. enumem i mapą przejść. Nie pozwalaj zmieniać statusu przez ogólną aktualizację DTO. Ponowienie zakończonej operacji nie może ponownie wykonać jej skutków; sprzeczne przejście oznacza konflikt.
 - Stosuj wstrzykiwanie zależności przez konstruktor.
+- Klasa startowa uruchamia aplikację, konfiguracja składa zależności, a domeny nie otwierają serwera ani połączeń do bazy. Do prostych testów reguł nie wymagaj uruchomienia HTTP; `Clock` pozwala sterować czasem w testach.
 
 ### Pakiety domenowe
 
@@ -142,23 +150,55 @@ Logowanie jest dostępne podczas przeglądania katalogu, w koszyku i przed zło�
 ### API i błędy
 
 - Udostępniaj REST API pod `/api`. Nie wystawiaj encji JPA bezpośrednio; używaj DTO.
+- URL zasobów nazywaj rzeczownikami, operację wyrażaj metodą HTTP. `GET` nie zmienia stanu; `POST` tworzy/uruchamia operację, `PUT` zastępuje udokumentowany zestaw danych, `PATCH` zmienia wskazaną część. Zmiana statusu może mieć osobny endpoint z własnymi regułami. Nie implementuj kasowania historii tylko po to, aby mieć pełny CRUD.
+- Używaj 200 dla odczytu/odpowiedzi, 201 dla utworzenia i 204 bez body. Przy 201 dodawaj `Location`, gdy istnieje adres odczytu nowego zasobu dostępny danemu odbiorcy; nie wskazuj nieistniejącego endpointu.
 - Waliduj dane wejściowe przy użyciu Jakarta Bean Validation oraz reguł domenowych.
+- Waliduj osobno body, parametry ścieżki i query: typy, zakresy, enumy, rozmiary, formaty i limity długości. Kształt danych sprawdzaj na granicy API, a stan konta, dostępność i uprawnienia do konkretnego zasobu w serwisie.
+- DTO żądania jawnie określa dozwolone pola; odrzucaj nieznane pola JSON, zwłaszcza `role`, `accountId`, ceny i statusy zarządzane przez backend. Nie kopiuj całego wejścia na encję. W JSON nie polegaj na niejawnej konwersji tekstu na liczbę/boolean; konwersja poprawnych wartości query/path jest osobną kwestią.
+- Normalizuj dane świadomie (np. e-mail do małych liter, obcięcie brzegowych spacji w nazwie), a następnie weryfikuj wartości używane w logice. Nigdy nie przycinaj ani nie zmieniaj hasła. DTO odpowiedzi jawnie wybiera pola; daty zdarzeń mają format ISO 8601 z UTC, a opcjonalne pola spójną reprezentację.
 - Stosuj globalny `@RestControllerAdvice` ze spójnym formatem błędów opartym na `ProblemDetail`, w tym błędami walidacji pól.
+- Zachowaj `ProblemDetail` zamiast kopiować strukturę `{error: ...}` z Expressa. Błąd powinien zawierać stały `code` dla frontendu, opis oraz dla walidacji listę pól/komunikatów bez ujawnienia ich poufnych wartości. Frontend nie powinien podejmować decyzji na podstawie porównania tekstu komunikatu.
 - Rozróżniaj nieprawidłowe dane (400), brak uwierzytelnienia (401), brak uprawnień (403), brak zasobu (404) i konflikt stanu biznesowego (409).
+- Niepoprawny JSON i niepoprawne UUID/enum/query to błąd klienta, nie 500. Nieznane ścieżki powinny mieć JSON zamiast HTML, z zachowaniem pierwszeństwa kontroli dostępu. Przy chronionych zasobach obcego właściciela preferuj 404, aby nie ujawniać ich istnienia; brak roli do operacji oznacza 403.
 - Błędy z filtrów bezpieczeństwa również powinny mieć spójny format; samo controller advice nie wystarczy do ich obsługi.
 - Nie ujawniaj stosów wyjątków, SQL, haseł ani szczegółów infrastruktury w odpowiedziach API.
-- Utrzymuj dokumentację OpenAPI zgodną z implementacją.
+- Przy rozbudowie diagnostyki dodaj generowany lub bezpiecznie zwalidowany `X-Request-Id`, zwracany także jako `requestId` błędu i obecny w logach. Nie ufaj dowolnemu tekstowi z nagłówka. Loguj metodę, szablon ścieżki, status i czas obsługi; nie loguj Authorization, body z hasłem ani pełnych URL z tokenem. Obsługa 500 powinna ułatwiać znalezienie miejsca błędu po ID bez ujawniania sekretów w logach.
+- Utrzymuj dokumentację OpenAPI zgodną z implementacją: DTO, parametry, odpowiedzi sukcesu i błędów oraz `bearerAuth` (HTTP Bearer, JWT). Chronione operacje muszą mieć oznaczenie bezpieczeństwa; publiczne logowanie/rejestracja go nie wymagają. Swagger powinien umożliwiać użycie przycisku Authorize.
 
 ### Dane, spójność i bezpieczeństwo
 
-- PostgreSQL jest docelową bazą. Schemat zmieniaj wersjonowanymi migracjami; przed dodaniem pierwszych encji wybierz i skonfiguruj jedno narzędzie migracji.
+- PostgreSQL działa jako osobna usługa; obecnie używamy PostgreSQL 17, JPA/Hibernate i Flyway. Nie cofaj wersji do przykładu z laboratoriów. Kontener bazy ma wolumen oraz jawnie wskazaną wersję obrazu, bez `latest`.
+- Schemat zmieniaj wyłącznie nowymi, wersjonowanymi migracjami Flyway. Nie edytuj wykonanych migracji ani ich sum kontrolnych. Usuwając funkcję sesji, zachowaj historyczne V1/V2 i dodaj kolejną migrację; nie naprawiaj wdrożenia usuwaniem całej bazy.
+- Oddziel migracje struktury od opcjonalnych danych demonstracyjnych. Seedy tylko na jawnym profilu lokalnym/demo, nigdy automatyczne `TRUNCATE` przy starcie. Pierwszy administrator nadal powstaje przez opcjonalny bootstrap ze zmiennych środowiska, bez domyślnego hasła z PDF.
 - Nie używaj `ddl-auto=update` jako mechanizmu zarządzania schematem. Poza izolowanymi testami zachowaj walidację schematu.
+- Modeluj relacje przez PK/FK, a M:N przez tabelę łączącą, gdy domena faktycznie jej wymaga. Dobieraj `NOT NULL`, `UNIQUE`, `CHECK` i zachowanie przy usuwaniu do reguł sklepu. Nie dodawaj `CASCADE` usuwającego zamówienia wraz z kontem lub produktem. Identyfikatory generuj jako UUID, nigdy jako liczba elementów + 1.
+- Używaj wspólnego `DataSource` i puli połączeń Springa, bez nowej puli dla każdego żądania/repozytorium. Parametryzuj zapytania; nie doklejaj danych klienta do SQL/JPQL. Indeksy projektuj pod rzeczywiste filtry, połączenia i sortowanie.
+- Listy mają walidowaną paginację z limitem maksymalnie 100 pozycji i metadanymi. Przy implementacji ustal i opisz numerację stron. Zawsze stosuj jawne sortowanie oraz stabilny drugi klucz (np. ID). Pola sortowania wybieraj z dozwolonej listy, nie przekazuj klientowskiego tekstu do SQL.
+- Unikaj N+1 przy listach produktów/zamówień: dobierz projekcję DTO, JOIN lub `EntityGraph`; nie ustawiaj wszystkich relacji na EAGER. Nie łącz paginacji kolekcji z fetch joinem powodującym stronicowanie w pamięci. Weryfikuj liczbę zapytań, gdy endpoint pobiera powiązane dane.
 - Operacje zamówień, płatności i magazynu muszą zachowywać spójność przy równoczesnych żądaniach. Samo sprawdzenie dostępności przed zapisem nie wystarcza do ochrony przed sprzedażą ponad stan.
 - Wyznacz granice transakcji i egzekwuj istotne ograniczenia również w bazie danych.
+- Jedna operacja biznesowa obejmująca kilka zapisów ma jedną transakcję serwisu (`@Transactional`); uczestniczą w niej wszystkie repozytoria. Nie przechwytuj błędu tylko po to, aby kontynuować częściowy zapis; uwzględniaj reguły rollbacku i fakt, że wywołanie metody w tej samej instancji omija proxy Springa.
+- Sama transakcja przy READ COMMITTED nie rozwiązuje check-then-act. Dla współdzielonego limitu/rezerwacji stosuj odpowiednią blokadę w bazie, atomowy update lub constraint. Blokuj zawsze w ustalonej kolejności i ponownie odczytuj stan po uzyskaniu blokady; nie zastępuj tego `synchronized`, które nie chroni wielu instancji backendu.
+- Konflikty UNIQUE, FK i CHECK obsługuj według znaczenia operacji, bez szczegółów PostgreSQL w odpowiedzi. Duplikat/konflikt współbieżnej edycji zwykle daje 409, niepoprawne dane 400; nie zamieniaj dowolnej awarii bazy w 409. Test z PostgreSQL ma potwierdzać rollback i zachowanie przy równoległych żądaniach.
 - Autoryzuj operacje po stronie backendu, zarówno według roli, jak i właściciela zasobu. Sam identyfikator zamówienia nie daje dostępu do niego.
 - Hasła przechowuj wyłącznie jako bezpieczne skróty za pośrednictwem mechanizmów Spring Security. Nie implementuj własnej kryptografii.
 - Nie zapisuj w logach haseł, tokenów, sekretów ani pełnych danych osobowych. Sekrety przekazuj konfiguracją środowiska.
-- Wybrane uwierzytelnianie: sesja po stronie backendu i bezpieczne cookie dla przyszłego frontendu Angular. Nie wprowadzaj JWT. Stosuj ochronę CSRF, HttpOnly cookie sesji oraz Secure na HTTPS. Logowanie, role i kontrolę właściciela wdrażaj przed prywatnymi operacjami koszyka i zamówień.
+
+### Uwierzytelnianie JWT i konfiguracja
+
+- Wybrane uwierzytelnianie kont: podpisany JWT w `Authorization: Bearer <token>`, Spring Security Resource Server, bez Spring Session i `HttpSession` jako magazynu logowania (`STATELESS`). Nie twórz własnego parsera JWT ani własnej kryptografii.
+- Logowanie zwraca `accessToken`, `tokenType: Bearer` i `expiresIn` jako liczbę sekund (domyślnie 900). Bez refresh tokenów; po wygaśnięciu ponowne logowanie. Nie przenoś starego limitu sesji 30 min/8 h do JWT.
+- JWT zawiera minimum potrzebnych claims: `sub` jako UUID w tekście, `iat`, `exp`, `iss`, `aud`, `jti`, rolę i wersję uwierzytelnienia. Nie zawiera hasła, hasha, adresu dostawy ani innych zbędnych danych osobowych. Podpis nie szyfruje payloadu.
+- Weryfikuj podpis, jawnie dozwolony algorytm HS256, czas ważności, issuer, audience i poprawność wymaganych claims. Odrzucaj tokeny bez terminu, z `alg=none`, zmienionym payloadem i obcym podpisem. Samo odkodowanie base64 nie jest weryfikacją.
+- `JWT_SECRET` to Base64 co najmniej 32 losowych bajtów z bezpiecznego generatora, dostarczane przez środowisko. Nie ustawiaj stałego domyślnego sekretu w kodzie i nie generuj go po cichu przy każdym starcie. Brak/zły sekret ma zatrzymać start z czytelnym błędem, bez wydrukowania jego wartości.
+- Stan konta, rola i `auth_version` są dodatkowo sprawdzane w bazie przy uwierzytelnianiu tokenu. Reset hasła, wyłączenie konta i wylogowanie odbierają dostęp także przed `exp`. Przyjęte proste wylogowanie zwiększa wersję konta i unieważnia wszystkie jego dotychczasowe JWT; opisz ten efekt w API. Nie oznacza to sesji HTTP ani obietnicy, że JWT będzie weryfikowany bez odczytu bazy.
+- Tożsamość pochodzi z poprawnie zweryfikowanego tokenu, nigdy z body/query. Role sprawdzaj w Spring Security, a dostęp do konkretnego zasobu dodatkowo w serwisie na podstawie właściciela. Rejestracja zawsze nadaje CUSTOMER; ADMIN nie dziedziczy automatycznie EMPLOYEE.
+- Logowanie dla złego hasła, nieistniejącego i niedostępnego konta zwraca ten sam komunikat 401. 401 dotyczy także brakującego, wygasłego lub nieprawidłowego JWT; 403 oznacza brak uprawnień uwierzytelnionego wykonawcy.
+- Bearer jest akceptowany wyłącznie z nagłówka, nie z query, body ani cookie. CSRF jest wyłączone tylko dla obecnego API, które nie używa automatycznie wysyłanych cookies ani Basic auth do uwierzytelniania. Jeśli w przyszłości cookie da dostęp do koszyka gościa lub pojawi się refresh cookie, zaprojektuj ochronę tych operacji przed CSRF. Samo użycie JWT nie usuwa zagrożenia CSRF.
+- Dla Angulara preferuj token w pamięci aplikacji, nigdy w URL ani logach; nie wybieraj localStorage jako domyślnego magazynu sekretów. Frontend nie jest teraz implementowany. Przesyłanie tokenów poza lokalnym developmentem wymaga HTTPS.
+- CORS dopuszcza jawnie skonfigurowane originy (lokalnie `http://localhost:4200`), nagłówek Authorization oraz potrzebne metody/preflight. CORS nie jest autoryzacją i nie blokuje klienta typu curl; nie zastępuje ról ani kontroli właściciela.
+- Konfigurację grupuj tematycznie (np. walidowane `@ConfigurationProperties`), waliduj wymagane parametry przy starcie i dokumentuj jednostki/zakresy. Sekrety tylko ze środowiska; `.env.example` zawiera nazwy i bezpieczne placeholdery, `.env` pozostaje ignorowany. Spring nie wczytuje `.env` automatycznie. Ujawniony sekret należy wymienić, a nie tylko usunąć z pliku.
+- Zachowaj istniejący `PasswordEncoder` PBKDF2 z solą i kosztem obliczeń; bcrypt z materiału jest przykładem, nie wymogiem zmiany istniejących haseł. Nie stosuj zwykłego SHA-256 do haseł. Skrót losowego tokenu resetu to inne zastosowanie niż hashowanie hasła i pozostaje osobnym mechanizmem.
 
 ### Weryfikacja zmian
 
@@ -168,19 +208,20 @@ Logowanie jest dostępne podczas przeglądania katalogu, w koszyku i przed zło�
 - Po zmianach uruchom adekwatne testy; podstawowe polecenie to `./mvnw.cmd verify` z `backend` na Windows lub `./mvnw verify` na Linux/macOS.
 - Aktualizuj README, gdy zmienia się sposób uruchomienia lub konfiguracji. Zachowaj możliwość startu z IntelliJ i przez Maven wrapper.
 - Opisuj ograniczenia weryfikacji, jeśli czegoś nie udało się sprawdzić.
+- Testuj JWT przez rzeczywiste żądania HTTP: brak/wygaśnięcie/podrobienie tokenu, nieprawidłowe claims i algorytm, 401/403, cudze zasoby, reset/wylogowanie, brak tworzenia sesji, kontrakt Bearer w OpenAPI i dozwolone/zabronione CORS. Nie zastępuj całej weryfikacji tokenu atrapą zalogowanego użytkownika.
 
 ## Propozycje do omówienia — nie są jeszcze zatwierdzonym zakresem
 
 1. **Zmiana ceny w koszyku:** proponowane jest potwierdzenie aktualnej kwoty przez klienta przed utworzeniem zamówienia, jeżeli cena uległa zmianie.
 2. **Anulowanie zamówienia:** proponowane MVP pozwala klientowi anulować tylko nieopłacone zamówienie. Anulowanie opłaconych zamówień wymaga procesu zwrotu i pozostaje poza obecnym zakresem.
-3. **Koszyk gościa:** do ustalenia pozostaje dłuższe przechowywanie koszyka po wygaśnięciu anonimowej sesji. Pierwszy etap kont używa sesji JDBC, 30 minut bezczynności i maksymalnie 8 godzin logowania. Bootstrap administratora jest opcjonalny, przez zmienne środowiska; zaproszenia (24 h) i reset (30 min) trafiają lokalnie do Mailpit. Ustawienia są konfigurowalne.
+3. **Koszyk gościa:** po przejściu na JWT trzeba osobno ustalić identyfikację anonimowego właściciela, czas życia i przechowywanie jego koszyka. Access token konta nie identyfikuje gościa; nie przywracaj sesji logowania dla rozwiązania tego problemu. Bootstrap administratora jest opcjonalny; zaproszenia (24 h) i reset (30 min) trafiają lokalnie do Mailpit.
 4. **Adres wpisany przy zakupie:** proponowane jest osobne, świadome zapisanie go na koncie. Zmiana adresu dla pojedynczego zamówienia nie powinna po cichu nadpisywać adresu profilu.
 
 Wstępny projekt relacji i uzasadnienia znajdują się w `docs/backend-design.md`. Pozostałe propozycje tego dokumentu nie stają się wymaganiami bez ich uzgodnienia.
 
 ## Stan implementacji
 
-Pierwszy etap: migracje Flyway dla kont, adresów, tokenów jednorazowych i sesji; rejestracja klienta, logowanie/wylogowanie z CSRF, własny profil i adres, zaproszenia pracowników oraz reset haseł przez administratora. Kontrakt: `docs/backend-api.md`. Pozostałe funkcje sklepu są nadal wymaganiami do implementacji.
+Pierwszy etap: konta, profil i adres, zaproszenia pracowników oraz reset haseł przez administratora. Uwierzytelnianie zostało zmienione na JWT Bearer ważny 15 minut, bez refresh tokenów; V3 usuwa nieużywane tabele sesji. Kontrakt: `docs/backend-api.md`. Dalsze zalecenia z materiałów (np. request ID i odseparowanie istniejących wyjątków od HTTP) nie oznaczają, że zostały już wdrożone. Pozostałe funkcje sklepu są nadal wymaganiami do implementacji.
 
 ## Poza zakresem MVP
 
