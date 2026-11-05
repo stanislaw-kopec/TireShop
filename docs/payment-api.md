@@ -56,4 +56,4 @@ Pracownik i administrator nie mogą ręcznie ustawiać PAID ani wykonywać wydan
 
 V7 tworzy payment_attempt, dodaje paid_at i powiązanie SALE z pozycją zamówienia. Unikalne indeksy pozwalają na najwyżej jedną próbę PENDING i jedną SUCCEEDED na zamówienie; UNIQUE(order_id, product_id) chroni pojedyncze wydanie pozycji.
 
-Linki śledzenia gościa ważne 90 dni, e-mail po zapłacie i realizacja zamówień przez pracownika pozostają następnymi etapami. Obecnie gość sprawdza PAID przez kontekst zakupu, a klient przez własne zamówienie. Nie ma jeszcze ekranu Angulara.
+V8 dodaje [linki śledzenia gościa i e-mail po zapłacie](tracking-api.md). Gość pobiera pierwszy link przez GET /api/guest/orders/{id}/tracking-link z X-Purchase-Token; klient nadal korzysta z własnego zamówienia. Realizacja zamówień przez pracownika i ekran Angulara pozostają następnymi etapami.

@@ -42,6 +42,7 @@ class AccountIntegrationTests {
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry registry) {
         registry.add("app.jwt.secret", () -> JWT_SECRET);
+        registry.add("app.tracking.secret", () -> Base64.getEncoder().encodeToString(new SecureRandom().generateSeed(32)));
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
@@ -71,7 +72,7 @@ class AccountIntegrationTests {
             assertThat(body(docs).path("paths").has("/api/auth/csrf")).isFalse();
             assertThat(jdbc.queryForObject("select count(*) from information_schema.tables where table_schema='public' and table_name like 'spring_session%'", Integer.class)).isZero();
             assertThat(client.get("/swagger-ui/index.html").statusCode()).isEqualTo(200);
-            assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where success", Integer.class)).isEqualTo(7);
+            assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where success", Integer.class)).isEqualTo(8);
         }
     }
 

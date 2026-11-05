@@ -8,12 +8,16 @@ Z katalogu projektu w PowerShell:
 
 ```powershell
 cd backend
-# Jednorazowo w tym terminalu: wygeneruj sekret, bez wyświetlania go w logach.
+# Tylko przy pierwszej konfiguracji: wygeneruj sekrety bez wyświetlania w logach.
+# Zachowaj wartości poza Git; w kolejnych terminalach ustaw te same sekrety.
 $jwtBytes = New-Object byte[] 32
 $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
 $rng.GetBytes($jwtBytes)
-$rng.Dispose()
 $env:JWT_SECRET = [Convert]::ToBase64String($jwtBytes)
+$trackingBytes = New-Object byte[] 32
+$rng.GetBytes($trackingBytes)
+$env:TRACKING_SECRET = [Convert]::ToBase64String($trackingBytes)
+$rng.Dispose()
 .\mvnw.cmd spring-boot:run
 ```
 
@@ -24,9 +28,11 @@ Domyślny profil `local` uruchamia PostgreSQL 17 oraz Mailpit (lokalny podgląd 
 - Stan aplikacji i połączenia z bazą: http://localhost:8080/actuator/health
 - Swagger UI: http://localhost:8080/swagger-ui/index.html
 - OpenAPI: http://localhost:8080/v3/api-docs
-- Podgląd lokalnych zaproszeń i resetów haseł: http://localhost:8025
+- Podgląd lokalnej poczty (konta oraz linki śledzenia po zapłacie): http://localhost:8025
 
-Backend obejmuje konta, logowanie JWT, adresy, zaproszenia pracowników, resetowanie haseł, katalog, magazyn, koszyk, zamówienia z 15-minutową rezerwacją i symulator płatności. Pracownik tworzy/edytuje produkty i zapisuje dostawy lub korekty, administrator ustala ceny i dopuszcza sprzedaż. Publiczny katalog ma filtry, paginację i sortowanie po cenie. Linki śledzenia, wiadomości po zapłacie i realizacja wysyłki są kolejnymi etapami. Backend nie udostępnia strony pod `/`.
+Backend obejmuje konta, logowanie JWT, adresy, zaproszenia pracowników, resetowanie haseł, katalog, magazyn, koszyk, zamówienia z 15-minutową rezerwacją, symulator płatności oraz linki śledzenia gościa z pocztą po zapłacie. Pracownik tworzy/edytuje produkty i zapisuje dostawy lub korekty, administrator ustala ceny i dopuszcza sprzedaż. Publiczny katalog ma filtry, paginację i sortowanie po cenie. Obsługa realizacji wysyłki przez pracownika pozostaje kolejnym etapem. Backend nie udostępnia strony pod `/`.
+
+V8 dodaje [linki śledzenia gościa i kolejkę poczty](docs/tracking-api.md). Link jest ważny 90 dni, udostępnia wyłącznie status i numer przesyłki. Można go odnowić na e-mail zapisany w zamówieniu; odpowiedź API nie ujawnia tokenu ani istnienia zamówienia. Awaria SMTP nie cofa zapłaty; kolejka ponawia wysyłkę do 5 prób. Ustaw nowy, trwały TRACKING_SECRET (Base64 dokładnie 32 losowych bajtów) również w konfiguracji IntelliJ. Wygeneruj go raz i zachowaj poza repozytorium — nie generuj nowego przy każdym starcie, gdy istnieją już zaszyfrowane linki/wiadomości. TRACKING_LINK_URL domyślnie wskazuje przyszły Angular: http://localhost:4200/track-order. API można przetestować w Swaggerze bez frontendu.
 
 V7 dodaje [API symulatora płatności](docs/payment-api.md): próby dla klienta i gościa, wybór sukcesu/odrzucenia/anulowania oraz bezpieczne ponowienia. Sukces ustawia PAID i atomowo wydaje towar z rezerwacji, zapisując SALE w historii magazynu. Kwota pochodzi z zamówienia; próby nie przedłużają 15 minut. Nie ma prawdziwych płatności ani formularza kart. Migracja uruchamia się standardowo przez Flyway; nie wymaga nowych zmiennych środowiska.
 

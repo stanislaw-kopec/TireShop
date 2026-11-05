@@ -1,10 +1,10 @@
 # TireShop — wstępny projekt backendu i bazy
 
-Stan: projekt z 9 października, aktualizacja po wdrożeniu symulatora płatności 5 listopada 2026. Wymagania wiążące są w `AGENTS.md`. Dokument odróżnia bieżącą implementację od dalszego projektu. Obejmuje backend; Angular jest przyszłym klientem API.
+Stan: projekt z 9 października, aktualizacja po wdrożeniu śledzenia gościa i kolejki poczty 5 listopada 2026. Wymagania wiążące są w `AGENTS.md`. Dokument odróżnia bieżącą implementację od dalszego projektu. Obejmuje backend; Angular jest przyszłym klientem API.
 
 Pierwszy etap obejmuje `app_account`, `account_address`, `account_action_token`, rejestrację, JWT Bearer, profil i adres, wyszukiwanie kont przez administratora, zaproszenia i reset haseł. JWT zastąpił sesje HTTP: historyczne V1/V2 pozostają, a V3 usuwa tabele Spring Session. Kontrakt: [backend-api.md](backend-api.md).
 
-Drugi etap (V4) dodaje `manufacturer`, `tire_product`, `inventory` i `inventory_change`: katalog publiczny i personelu, parametry produktu, ceny, dopuszczenie sprzedaży, dostawy, korekty oraz historię magazynu. Kontrakt: [catalog-api.md](catalog-api.md). V5 dodaje `shopping_cart` i `cart_item`: [cart-api.md](cart-api.md). V6 dodaje `checkout_quote`, `customer_order`, `order_item` i rezerwację 15 minut: [order-api.md](order-api.md). V7 dodaje `payment_attempt`, paid_at i wpisy SALE: [payment-api.md](payment-api.md). Bieżący schemat ma 13 tabel domenowych. Linki śledzenia i historia realizacji w diagramie pozostają dalszym projektem. Symbol CART odpowiada `shopping_cart`.
+Drugi etap (V4) dodaje `manufacturer`, `tire_product`, `inventory` i `inventory_change`: katalog publiczny i personelu, parametry produktu, ceny, dopuszczenie sprzedaży, dostawy, korekty oraz historię magazynu. Kontrakt: [catalog-api.md](catalog-api.md). V5 dodaje `shopping_cart` i `cart_item`: [cart-api.md](cart-api.md). V6 dodaje `checkout_quote`, `customer_order`, `order_item` i rezerwację 15 minut: [order-api.md](order-api.md). V7 dodaje `payment_attempt`, paid_at i wpisy SALE: [payment-api.md](payment-api.md). V8 dodaje `order_access_token`, `order_email_outbox`, `tracking_request_limit` i tracking_number: [tracking-api.md](tracking-api.md). Bieżący schemat ma 14 tabel domenowych oraz 2 techniczne tabele kolejki i limitów. Historia realizacji w diagramie pozostaje dalszym projektem. Symbol CART odpowiada `shopping_cart`.
 
 ## Przyjęte decyzje
 
@@ -49,6 +49,7 @@ erDiagram
     TIRE_PRODUCT ||--o{ ORDER_ITEM : "produkt i kopia danych"
     CUSTOMER_ORDER ||--o{ PAYMENT_ATTEMPT : "proby platnosci"
     CUSTOMER_ORDER ||--o{ ORDER_ACCESS_TOKEN : "linki goscia"
+    ORDER_ACCESS_TOKEN ||--|| ORDER_EMAIL_OUTBOX : "zadanie wysylki linku"
     CUSTOMER_ORDER ||--|{ ORDER_STATUS_HISTORY : "historia realizacji"
     APP_ACCOUNT o|--o{ ORDER_STATUS_HISTORY : "autor lub system"
     TIRE_PRODUCT ||--o{ INVENTORY_CHANGE : "ruch magazynowy"
@@ -56,7 +57,7 @@ erDiagram
     ORDER_ITEM o|--o| INVENTORY_CHANGE : "jednorazowe wydanie przy sprzedazy"
 ```
 
-W projekcie jest 15 tabel domenowych, w tym rejestr zmian magazynu `INVENTORY_CHANGE` oraz dodane podsumowania `CHECKOUT_QUOTE`. Nie dodajemy tabel słownikowych dla każdej wartości enum ani osobnych tabel modelu, rozmiaru i sezonu.
+Docelowy projekt obejmuje 15 tabel domenowych, z których 14 jest wdrożonych. V8 dodaje również techniczną kolejkę ORDER_EMAIL_OUTBOX i niezależną tabelę limitów TRACKING_REQUEST_LIMIT (bez FK do zamówień — także dla nieistniejących numerów). Nie dodajemy tabel słownikowych dla każdej wartości enum ani osobnych tabel modelu, rozmiaru i sezonu.
 
 ## Tabele i kluczowe pola
 
@@ -73,10 +74,12 @@ Typy wspólne: identyfikatory `uuid`, kwoty `numeric(12,2)`, czas `timestamptz` 
 | `shopping_cart` / cart | `id PK`, `account_id FK NULL UNIQUE`, `guest_token_hash NULL UNIQUE`, `expires_at NULL`, `merged_account_id FK NULL`, `created_at` | Konto albo skrót tokenu gościa (CHECK). Jeden koszyk konta. Wiersz gościa po scaleniu zachowuje odbiorcę dla idempotencji; dostęp ograniczony terminem. Blokada FOR UPDATE serializuje zmiany, przy scalaniu najpierw gość, potem konto. |
 | `cart_item` / cart | `cart_id FK`, `product_id FK`, `quantity` | Złożony PK(cart_id, product_id), quantity > 0. Cena odczytywana z katalogu; koszyk niczego nie rezerwuje. |
 | `checkout_quote` / order | `id PK`, `cart_id FK`, `account_id FK NULL`, `guest_token_hash NULL`, `access_expires_at NULL`, `expires_at`, `snapshot jsonb` | Podsumowanie ważne 15 minut, bez rezerwacji. Gość dostaje osobny losowy token zakupu ważny 24 h. Snapshot zawiera pozycje, ceny, sumy i kontakt/adres, sprawdzane ponownie przy potwierdzeniu. |
-| `customer_order` / order | `id PK`, `quote_id FK UNIQUE`, `checkout_key UNIQUE`, `account_id FK NULL`, `guest_token_hash NULL`, `access_expires_at NULL`, `status`, `delivery jsonb`, `currency`, `items_total_gross`, `shipping_gross`, `total_gross`, `created_at`, `reservation_expires_at`, `cancellation_reason NULL`, `paid_at NULL` | Numer TS-UUID. Konto XOR kontekst gościa; kopia kontaktu/adresu. Kwoty sum numeric(24,2). Blokada wiersza serializuje płatność/anulowanie/wygaśnięcie. paid_at w V7; przesyłka pozostaje dalszym projektem. |
+| `customer_order` / order | `id PK`, `quote_id FK UNIQUE`, `checkout_key UNIQUE`, `account_id FK NULL`, `guest_token_hash NULL`, `access_expires_at NULL`, `status`, `delivery jsonb`, `currency`, `items_total_gross`, `shipping_gross`, `total_gross`, `created_at`, `reservation_expires_at`, `cancellation_reason NULL`, `paid_at NULL`, `tracking_number NULL` | Numer TS-UUID. Konto XOR kontekst gościa; kopia kontaktu/adresu. Kwoty sum numeric(24,2). Blokada wiersza serializuje płatność/anulowanie/wygaśnięcie. paid_at w V7, tracking_number w V8; obsługa realizacji przez pracownika pozostaje dalszym etapem. |
 | `order_item` / order | `order_id FK`, `product_id FK`, `product_snapshot jsonb`, `quantity`, `unit_price_gross`, `line_total_gross` | Złożony PK(order_id, product_id), quantity > 0. Kopia nazwy producenta/modelu, rozmiaru, sezonu, zdjęcia. Cena numeric(12,2), suma numeric(24,2). FK nie zastępuje kopii. |
 | `payment_attempt` / payment | `id PK`, `order_id FK`, `request_key`, `status`, `amount_gross`, `currency`, `created_at`, `finished_at NULL`, `reason NULL` | V7. UNIQUE(order_id, request_key) zapewnia ponowienia. Jedno zamówienie może mieć wiele prób, ale najwyżej jedną oczekującą i jedną udaną. Kwota numeric(24,2) z zamówienia. ID próby nie daje prawa zmiany wyniku. |
-| `order_access_token` / order | `id PK`, `order_id FK`, `token_hash UNIQUE`, `created_at`, `expires_at`, `revoked_at NULL` | Wielokrotny odczyt statusu gościa; to inny token niż jednorazowy reset hasła. Pierwszy link wygasa 90 dni po zapłacie; odnowiony link wygasa 90 dni od swojego wydania. Nowy link wysyłany wyłącznie na e-mail zamówienia. |
+| `order_access_token` / order | `id PK`, `order_id FK`, `token_hash UNIQUE`, `initial`, `created_at`, `expires_at`, `screen_ciphertext NULL`, `screen_expires_at NULL` | V8: jeden pierwszy link na zamówienie, ważny 90 dni od zapłaty. Odnowione linki ważne 90 dni od wydania nie unieważniają starych. Zaszyfrowana kopia pierwszego tokenu dostępna tylko przez kontekst zakupu i usuwana po jego wygaśnięciu. |
+| `order_email_outbox` / order | `id PK/FK order_access_token`, `payload NULL`, `status`, `attempts`, `next_attempt_at`, `expires_at`, `finished_at NULL` | V8: zaszyfrowana treść, maksymalnie 5 prób SMTP. SENT/FAILED usuwa payload. Identyfikator tokenu zapobiega duplikatom zadania. |
+| `tracking_request_limit` / order | `key_hash PK`, `window_start`, `requests` | V8: atomowe limity 10/15 min na adres sieciowy i 1/15 min na numer zamówienia. Nie przechowuje jawnego IP; stare liczniki usuwane po dobie. |
 | `order_status_history` / order | `id PK`, `order_id FK`, `from_status NULL`, `to_status`, `changed_by FK NULL`, `changed_at`, `reason NULL` | Historia zmian; NULL autora oznacza system, np. płatność lub wygaśnięcie. Tworzona razem ze zmianą statusu. |
 | `inventory_change` / inventory | `id PK` (= operationId), `product_id FK`, `actor_account_id FK NULL`, `order_id NULL`, `type`, `quantity_delta`, `reason`, `on_hand_after`, `reserved_after`, `created_at` | RECEIPT/CORRECTION mają autora-pracownika i order_id null. SALE (V7) ma autora-system (null) i złożony FK(order_id, product_id) do order_item. UNIQUE tej pary chroni jednorazowe wydanie. Rezerwacja nie jest wydaniem. |
 
@@ -122,7 +125,7 @@ Decyzja użytkownika z 4 listopada 2026: JWT zgodnie z materiałami na zajęcia;
 - Role nadal są rozłączne; identyfikator właściciela pochodzi z uwierzytelnienia, nie z żądania klienta. Reset hasła/zaproszenie używa osobnego jednorazowego losowego tokenu z hashem w bazie.
 - Brak cookie uwierzytelniającego i Basic auth pozwala wyłączyć CSRF dla obecnego API. Nie oznacza to, że JWT umieszczony w cookie automatycznie chroni przed CSRF. Przyszły dostęp gościa oparty o cookie trzeba zabezpieczyć osobno.
 - Angular może działać pod tym samym originem (proxy) albo z jawną listą CORS (lokalnie localhost:4200), bez credentials. Planowany magazyn JWT w przeglądarce to pamięć aplikacji; odświeżenie strony bez zachowanego tokenu wymaga logowania. Frontend pozostaje poza tym etapem.
-- Bootstrap administratora, PBKDF2 i lokalny Mailpit pozostają. Zaproszenia: 24 godziny, reset: 30 minut, wysyłka synchroniczna. Kolejka poczty przy płatnościach nadal jest osobną propozycją.
+- Bootstrap administratora, PBKDF2 i lokalny Mailpit pozostają. Zaproszenia: 24 godziny, reset: 30 minut, wysyłka synchroniczna. V8 dodaje osobną kolejkę wiadomości z linkami śledzenia po płatnościach.
 
 Kontrakt i konfiguracja: [API](backend-api.md), [README](../README.md). Przełożenie materiałów laboratoryjnych: [lab-guidelines.md](lab-guidelines.md).
 
@@ -138,7 +141,7 @@ Niezależnie od wyboru pozostają reguły:
 2. Jeśli suma przekracza dostępność, uzgodniona reguła to konflikt i zachowanie obu koszyków bez zmian do poprawienia ilości. Koszyk niczego nie rezerwuje.
 3. Płatność można rozpocząć/ponowić tylko dla zamówienia własnego kontekstu. ID zamówienia/próby nie daje dostępu. Logowanie po złożeniu zamówienia nie zmienia jego właściciela.
 4. Link po zapłacie to osobny losowy token dający wyłącznie odczyt statusu i numeru przesyłki. Działa niezależnie od JWT konta i kontekstu koszyka, nie pozwala edytować ani płacić.
-5. W bazie zapisujemy hash tokenu śledzenia; jawny link otrzymuje wyłącznie uprawniony odbiorca. Linku nie wolno logować. Ważność: 90 dni od zapłaty, po odnowieniu 90 dni od wydania; wysyłka tylko na zapisany e-mail zamówienia.
+5. W bazie zapisujemy hash tokenu śledzenia; jawny link otrzymuje wyłącznie uprawniony odbiorca. V8 przechowuje też zaszyfrowaną kopię pierwszego tokenu do wygaśnięcia kontekstu zakupu oraz zaszyfrowany payload do zakończenia wysyłki. Chroni je osobny TRACKING_SECRET. Linku nie wolno logować. Ważność: 90 dni od zapłaty, po odnowieniu 90 dni od wydania; wysyłka tylko na zapisany e-mail zamówienia.
 6. Odnowienie nie ujawnia tokenu w publicznym API ani istnienia zamówienia i podlega ograniczeniu częstotliwości. Anonimowe żądanie nie powinno unieważniać wciąż działającego linku.
 7. Utrata dostępu do kontekstu gościa przed zapłatą nie pozwala przejąć zamówienia samym numerem/e-mailem. Nieopłacone zamówienie wygaśnie po 15 minutach; sposób odzyskania kontekstu należy ustalić wraz z koszykiem.
 
@@ -151,9 +154,9 @@ Niezależnie od wyboru pozostają reguły:
 | Numer przesyłki | Wymagany do przejścia do SHIPPED, jedna przesyłka na zamówienie | Unika statusu „wysłane” bez danych do śledzenia. |
 | Anulowanie — zatwierdzone i wdrożone | Klient/gość anuluje tylko nieopłacone zamówienie; proces zwrotów poza MVP | Wymaga JWT właściciela lub tokenu zakupu. Przyszły link śledzenia nie daje prawa anulowania. |
 | Uprawnienia admina | Pozostawić osobne od pracownika; ewentualne łączenie ról ustalić wcześniej | Wpływa na pole role i testy autoryzacji. |
-| E-mail i awarie | Mała kolejka wiadomości w tej samej bazie (`email_outbox`) z ponawianiem | Awaria poczty nie cofa zapłaty. Nie potrzeba brokera. Tabela opcjonalna, poza głównym ERD. |
+| E-mail i awarie — zatwierdzone 5 listopada, wdrożone w V8 | Mała kolejka wiadomości w tej samej bazie (`order_email_outbox`) z ponawianiem | Awaria poczty nie cofa zapłaty. Nie potrzeba brokera. |
 
-Jeśli akceptujemy outbox: zapis zadania wiadomości razem z zatwierdzeniem zamówienia, wysyłka po commit, ograniczone retry i status błędu. Wiadomość może zawierać jawny token linku, którego nie da się odzyskać ze skrótu; taki payload wymaga ochrony (np. szyfrowania) i usunięcia po wysyłce. Identyfikator zdarzenia zapobiega tworzeniu wielu zadań dla powtórnej płatności. Nie obiecujemy „dokładnie jednej wysyłki” przez SMTP.
+Outbox V8: zapis zadania razem z zatwierdzeniem płatności, wysyłka po commit, maksymalnie 5 prób i status FAILED po ich wyczerpaniu. Payload z linkiem i adresem e-mail jest szyfrowany i usuwany po SENT/FAILED. Identyfikator tokenu zapobiega tworzeniu wielu zadań dla powtórnej płatności. Nie obiecujemy „dokładnie jednej wysyłki” przez SMTP.
 
 ## Kolejność implementacji i granice projektu
 
@@ -162,7 +165,7 @@ Jeśli akceptujemy outbox: zapis zadania wiadomości razem z zatwierdzeniem zam�
 3. Katalog i podstawowy magazyn wraz z uprawnieniami pracownika/admina — zaimplementowane w V4. Rezerwacje dodaje V6, wydania sprzedażowe V7.
 4. Koszyk gościa/klienta i bezpieczne łączenie po zalogowaniu — zaimplementowane w V5.
 5. Zamówienia, snapshoty, dostawa, atomowa rezerwacja i wygaśnięcie — zaimplementowane w V6. To samo quoteId + checkoutKey zwraca to samo zamówienie; zmieniony klucz/podsumowanie daje konflikt. Token zakupu gościa jest niezależny od koszyka.
-6. Symulator płatności i wydania towaru — zaimplementowane w V7. Testy wyścigów, duplikatów, uprawnień i rollbacku. Linki gościa i wiadomości pozostają do implementacji.
+6. Symulator płatności i wydania towaru — zaimplementowane w V7. V8 dodaje linki gościa i kolejkę wiadomości. Testy wyścigów, duplikatów, uprawnień, rollbacku, limitów i awarii poczty.
 7. Realizacja zamówień przez pracownika, historia statusów, numer przesyłki i uzupełnienie testów uprawnień.
 
 Nie odkładamy bezpieczeństwa na koniec: późniejsza zmiana właściciela koszyka, sposobu identyfikacji gościa i dostępu do zamówienia wymuszałaby przebudowę tych funkcji. Nie implementujemy teraz Angulara, realnych płatności, zwrotów, podatkowego modułu faktur, wielu magazynów ani integracji kuriera.

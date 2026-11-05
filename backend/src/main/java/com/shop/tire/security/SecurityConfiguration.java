@@ -47,7 +47,7 @@ public class SecurityConfiguration {
         if (origins.contains("*")) throw new IllegalStateException("CORS requires explicit allowed origins.");
         configuration.setAllowedOrigins(origins);
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Cart-Token", "X-Purchase-Token"));
+        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Cart-Token", "X-Purchase-Token", "X-Tracking-Token"));
         configuration.setAllowCredentials(false);
         var source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/api/**", configuration);
@@ -85,6 +85,8 @@ public class SecurityConfiguration {
                         .requestMatchers("/api/cart", "/api/cart/**").hasRole("CUSTOMER")
                         .requestMatchers("/api/orders", "/api/orders/**").hasRole("CUSTOMER")
                         .requestMatchers("/api/guest/orders", "/api/guest/orders/**").permitAll()
+                        .requestMatchers(HttpMethod.GET,"/api/order-tracking").permitAll()
+                        .requestMatchers(HttpMethod.POST,"/api/order-tracking/link-requests").permitAll()
                         .requestMatchers("/api/admin/**").hasRole("ADMIN")
                         .requestMatchers("/api/employee/**").hasRole("EMPLOYEE")
                         .requestMatchers("/api/staff/**").hasAnyRole("EMPLOYEE", "ADMIN")

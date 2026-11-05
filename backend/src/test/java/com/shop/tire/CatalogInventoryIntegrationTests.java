@@ -33,12 +33,14 @@ class CatalogInventoryIntegrationTests {
     @Container
     static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:17");
     private static final String JWT_SECRET = Base64.getEncoder().encodeToString(new SecureRandom().generateSeed(64));
+    private static final String TRACKING_SECRET = Base64.getEncoder().encodeToString(new SecureRandom().generateSeed(32));
     private static final String PASSWORD = "Catalog testing password 123!";
 
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry registry) {
         registry.add("app.order.expiry-job-enabled", () -> false);
         registry.add("app.jwt.secret", () -> JWT_SECRET);
+        registry.add("app.tracking.secret", () -> TRACKING_SECRET);
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
@@ -49,6 +51,7 @@ class CatalogInventoryIntegrationTests {
     @Autowired JdbcTemplate jdbc;
     @Autowired PasswordEncoder encoder;
     @Autowired com.shop.tire.order.OrderService orders;
+    @Autowired com.shop.tire.order.OrderMailDelivery delivery;
     @MockitoBean JavaMailSender mail;
     private HttpClient http;
     private String employee;
@@ -63,6 +66,8 @@ class CatalogInventoryIntegrationTests {
         admin = loginFixture("ADMIN");
         customer = loginFixture("CUSTOMER");
         employeeId = UUID.fromString(json.readTree(Base64.getUrlDecoder().decode(employee.split("\\.")[1])).get("sub").asText());
+        jdbc.update("UPDATE order_email_outbox SET next_attempt_at=now()+interval '1 day' WHERE status='PENDING'");
+        jdbc.update("DELETE FROM tracking_request_limit");
     }
 
     @AfterEach
@@ -894,6 +899,210 @@ class CatalogInventoryIntegrationTests {
         assertThat(get(employee,stock(second)).get("onHand").asInt()).isEqualTo(3);
         assertThat(get(employee,stock(second)).get("reserved").asInt()).isZero();
         assertThat(jdbc.queryForObject("select count(*) from inventory_change where order_id=?",Integer.class,UUID.fromString(order.get("id").asText()))).isEqualTo(2);
+    }
+
+    @Test
+    void paidGuestGetsOnePrivateTrackingLinkAndOneEncryptedMailJob() throws Exception {
+        var guest=guestPurchase();
+        String confirmation="/api/guest/orders/"+guest.id()+"/tracking-link";
+        problem(headerCall(null,"X-Purchase-Token",guest.purchase(),"GET",confirmation,null),409,"ORDER_NOT_PAID");
+        org.mockito.Mockito.verifyNoInteractions(mail);
+        pay(guest);
+        var response=headerCall(null,"X-Purchase-Token",guest.purchase(),"GET",confirmation,null);
+        var link=expect(response,200);
+        assertThat(response.headers().firstValue("cache-control").orElseThrow()).contains("no-store");
+        String raw=trackingToken(link);
+        assertThat(raw).hasSize(43).isNotEqualTo(guest.purchase()).isNotEqualTo(guest.cart());
+        assertThat(link.get("trackingUrl").asText()).startsWith("http://localhost:4200/track-order#token=");
+        var expires=java.time.Instant.parse(link.get("expiresAt").asText());
+        var paidAt=jdbc.queryForObject("select paid_at from customer_order where id=?",java.sql.Timestamp.class,guest.id()).toInstant();
+        assertThat(expires).isEqualTo(paidAt.plus(Duration.ofDays(90)));
+        var tracked=expect(track(raw),200);
+        assertThat(tracked.size()).isEqualTo(3);
+        assertThat(tracked.get("orderNumber").asText()).isEqualTo("TS-"+guest.id());
+        assertThat(tracked.get("status").asText()).isEqualTo("PAID");
+        assertThat(tracked.get("trackingNumber").isNull()).isTrue();
+        assertThat(tracked.toString()).doesNotContain("email","address","phone","snapshot");
+        var tokenId=jdbc.queryForObject("select id from order_access_token where order_id=?",UUID.class,guest.id());
+        assertThat(jdbc.queryForObject("select token_hash from order_access_token where id=?",String.class,tokenId))
+                .isEqualTo(com.shop.tire.shared.security.OpaqueTokens.hash(raw));
+        assertThat(new String(jdbc.queryForObject("select screen_ciphertext from order_access_token where id=?",byte[].class,tokenId),java.nio.charset.StandardCharsets.UTF_8)).doesNotContain(raw);
+        assertThat(new String(jdbc.queryForObject("select payload from order_email_outbox where id=?",byte[].class,tokenId),java.nio.charset.StandardCharsets.UTF_8)).doesNotContain(raw,"order@example.test");
+        org.mockito.Mockito.verifyNoInteractions(mail);
+        assertThat(delivery.sendNext()).isTrue();
+        var message=org.mockito.ArgumentCaptor.forClass(org.springframework.mail.SimpleMailMessage.class);
+        org.mockito.Mockito.verify(mail).send(message.capture());
+        assertThat(message.getValue().getTo()).containsExactly("order@example.test");
+        assertThat(message.getValue().getText()).contains(link.get("trackingUrl").asText());
+        assertThat(jdbc.queryForObject("select payload from order_email_outbox where id=?",byte[].class,tokenId)).isNull();
+        pay(guest);
+        assertThat(expect(headerCall(customer,"X-Purchase-Token",guest.purchase(),"GET",confirmation,null),200)).isEqualTo(link);
+        assertThat(jdbc.queryForObject("select count(*) from order_access_token where order_id=?",Integer.class,guest.id())).isEqualTo(1);
+        assertThat(delivery.sendNext()).isFalse();
+        jdbc.update("update customer_order set status='SHIPPED',tracking_number='TEST-123' where id=?",guest.id());
+        assertThat(expect(track(raw),200).get("trackingNumber").asText()).isEqualTo("TEST-123");
+        assertThat(expect(track(raw),200).get("status").asText()).isEqualTo("SHIPPED");
+    }
+
+    @Test
+    void trackingTokenCannotPayCancelOrRevealPurchaseAndExpiresIndependently() throws Exception {
+        var guest=guestPurchase();
+        pay(guest);
+        String path="/api/guest/orders/"+guest.id()+"/tracking-link";
+        String raw=trackingToken(expect(headerCall(null,"X-Purchase-Token",guest.purchase(),"GET",path,null),200));
+        problem(track(guest.purchase()),404,"TRACKING_NOT_FOUND");
+        problem(track(guest.cart()),404,"TRACKING_NOT_FOUND");
+        problem(call(null,"GET","/api/order-tracking",null),404,"TRACKING_NOT_FOUND");
+        problem(call(null,"GET","/api/order-tracking?token="+raw,null),404,"TRACKING_NOT_FOUND");
+        problem(headerCall(null,"X-Purchase-Token",raw,"GET","/api/guest/orders/"+guest.id(),null),404,"ORDER_NOT_FOUND");
+        problem(headerCall(null,"X-Purchase-Token",raw,"POST","/api/guest/orders/"+guest.id()+"/cancellation",null),404,"ORDER_NOT_FOUND");
+        problem(headerCall(null,"X-Purchase-Token",raw,"POST","/api/guest/orders/"+guest.id()+"/payments",Map.of("requestKey",UUID.randomUUID())),404,"ORDER_NOT_FOUND");
+        problem(call(customer,"GET",path,null),404,"ORDER_NOT_FOUND");
+        jdbc.update("update customer_order set access_expires_at=now()-interval '1 second' where id=?",guest.id());
+        problem(headerCall(null,"X-Purchase-Token",guest.purchase(),"GET",path,null),404,"ORDER_NOT_FOUND");
+        expect(track(raw),200);
+        jdbc.update("update order_access_token set screen_expires_at=now()-interval '1 second' where order_id=?",guest.id());
+        delivery.cleanExpiredSecrets();
+        assertThat(jdbc.queryForObject("select screen_ciphertext from order_access_token where order_id=?",byte[].class,guest.id())).isNull();
+        jdbc.update("update order_access_token set created_at=now()-interval '91 days',expires_at=now() where order_id=?",guest.id());
+        problem(track(raw),404,"TRACKING_NOT_FOUND");
+    }
+
+    @Test
+    void renewalIsPrivateThrottledConcurrentAndDoesNotRevokeExistingLink() throws Exception {
+        var guest=guestPurchase();
+        pay(guest);
+        var original=expect(headerCall(null,"X-Purchase-Token",guest.purchase(),"GET","/api/guest/orders/"+guest.id()+"/tracking-link",null),200);
+        var body=Map.of("orderNumber","TS-"+guest.id(),"email"," ORDER@example.test ");
+        var requests=List.of(request(null,"POST","/api/order-tracking/link-requests",body),request(null,"POST","/api/order-tracking/link-requests",body));
+        var results=parallel(requests);
+        var accepted=expect(results.getFirst(),202);
+        assertThat(expect(results.getLast(),202)).isEqualTo(accepted);
+        assertThat(accepted.toString()).doesNotContain("token","trackingUrl",guest.id().toString());
+        assertThat(jdbc.queryForObject("select count(*) from order_access_token where order_id=?",Integer.class,guest.id())).isEqualTo(2);
+        assertThat(expect(call(null,"POST","/api/order-tracking/link-requests",Map.of("orderNumber","TS-"+UUID.randomUUID(),"email","missing@example.test")),202)).isEqualTo(accepted);
+        jdbc.update("delete from tracking_request_limit");
+        assertThat(expect(call(null,"POST","/api/order-tracking/link-requests",Map.of("orderNumber","TS-"+guest.id(),"email","other@example.test")),202)).isEqualTo(accepted);
+        assertThat(jdbc.queryForObject("select count(*) from order_access_token where order_id=?",Integer.class,guest.id())).isEqualTo(2);
+        expect(track(trackingToken(original)),200);
+        assertThat(delivery.sendNext()).isTrue();
+        assertThat(delivery.sendNext()).isTrue();
+        var messages=org.mockito.ArgumentCaptor.forClass(org.springframework.mail.SimpleMailMessage.class);
+        org.mockito.Mockito.verify(mail,org.mockito.Mockito.times(2)).send(messages.capture());
+        for (var message:messages.getAllValues()) assertThat(message.getTo()).containsExactly("order@example.test");
+        var newMessage=messages.getAllValues().stream().filter(m->!m.getText().contains(trackingToken(original))).findFirst().orElseThrow();
+        String renewed=newMessage.getText().split("#token=")[1].substring(0,43);
+        expect(track(renewed),200);
+        assertThat(jdbc.queryForObject("select expires_at-created_at from order_access_token where order_id=? and not initial",Object.class,guest.id()).toString()).contains("90");
+        assertThat(jdbc.queryForObject("select screen_ciphertext from order_access_token where order_id=? and not initial",byte[].class,guest.id())).isNull();
+        problem(call(null,"POST","/api/order-tracking/link-requests",Map.of("orderNumber","TS-"+guest.id(),"email","order@example.test","recipient","attacker@example.test")),400,"INVALID_REQUEST");
+    }
+
+    @Test
+    void publicRenewalLimitsNetworkPeerEvenWithSpoofedForwardedFor() throws Exception {
+        for (int i=0;i<10;i++) expect(headerCall(null,"X-Forwarded-For","192.0.2."+i,"POST","/api/order-tracking/link-requests",
+                Map.of("orderNumber","TS-"+UUID.randomUUID(),"email","missing@example.test")),202);
+        var guest=guestPurchase();
+        pay(guest);
+        expect(headerCall(null,"X-Forwarded-For","192.0.2.99","POST","/api/order-tracking/link-requests",
+                Map.of("orderNumber","TS-"+guest.id(),"email","order@example.test")),202);
+        assertThat(jdbc.queryForObject("select count(*) from order_access_token where order_id=?",Integer.class,guest.id())).isEqualTo(1);
+    }
+
+    @Test
+    void mailFailureRetriesAfterCommitAndClearsPayloadAfterSuccess() throws Exception {
+        org.mockito.Mockito.doThrow(new org.springframework.mail.MailSendException("SMTP unavailable"))
+                .when(mail).send(org.mockito.ArgumentMatchers.any(org.springframework.mail.SimpleMailMessage.class));
+        var guest=guestPurchase();
+        pay(guest);
+        assertThat(jdbc.queryForObject("select status from customer_order where id=?",String.class,guest.id())).isEqualTo("PAID");
+        UUID job=jdbc.queryForObject("select id from order_access_token where order_id=?",UUID.class,guest.id());
+        assertThat(delivery.sendNext()).isTrue();
+        assertThat(jdbc.queryForObject("select attempts from order_email_outbox where id=?",Integer.class,job)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select status from order_email_outbox where id=?",String.class,job)).isEqualTo("PENDING");
+        assertThat(delivery.sendNext()).isFalse();
+        org.mockito.Mockito.doNothing().when(mail).send(org.mockito.ArgumentMatchers.any(org.springframework.mail.SimpleMailMessage.class));
+        jdbc.update("update order_email_outbox set next_attempt_at=now() where id=?",job);
+        var one=CompletableFuture.supplyAsync(()->delivery.sendNext());
+        var two=CompletableFuture.supplyAsync(()->delivery.sendNext());
+        assertThat(List.of(one.get(20,TimeUnit.SECONDS),two.get(20,TimeUnit.SECONDS))).containsExactlyInAnyOrder(true,false);
+        assertThat(jdbc.queryForObject("select status from order_email_outbox where id=?",String.class,job)).isEqualTo("SENT");
+        assertThat(jdbc.queryForObject("select payload from order_email_outbox where id=?",byte[].class,job)).isNull();
+        org.mockito.Mockito.verify(mail,org.mockito.Mockito.times(2)).send(org.mockito.ArgumentMatchers.any(org.springframework.mail.SimpleMailMessage.class));
+        assertThat(jdbc.queryForObject("select status from customer_order where id=?",String.class,guest.id())).isEqualTo("PAID");
+    }
+
+    @Test
+    void exhaustedMailRetriesRemoveEncryptedPayloadWithoutUndoingPayment() throws Exception {
+        var guest=guestPurchase();
+        pay(guest);
+        UUID job=jdbc.queryForObject("select id from order_access_token where order_id=?",UUID.class,guest.id());
+        org.mockito.Mockito.doThrow(new org.springframework.mail.MailSendException("SMTP unavailable"))
+                .when(mail).send(org.mockito.ArgumentMatchers.any(org.springframework.mail.SimpleMailMessage.class));
+        for (int i=0;i<5;i++) {
+            jdbc.update("update order_email_outbox set next_attempt_at=now() where id=?",job);
+            assertThat(delivery.sendNext()).isTrue();
+        }
+        assertThat(jdbc.queryForObject("select status from order_email_outbox where id=?",String.class,job)).isEqualTo("FAILED");
+        assertThat(jdbc.queryForObject("select payload from order_email_outbox where id=?",byte[].class,job)).isNull();
+        assertThat(delivery.sendNext()).isFalse();
+        assertThat(jdbc.queryForObject("select status from customer_order where id=?",String.class,guest.id())).isEqualTo("PAID");
+    }
+
+    @Test
+    void failureAfterPreparingGuestMailRollsBackLinkAndMessageWithPayment() throws Exception {
+        var guest=guestPurchase();
+        jdbc.execute("ALTER TABLE payment_attempt ADD CONSTRAINT test_guest_payment_failure CHECK (id <> '"+guest.payment()+"'::uuid OR status <> 'SUCCEEDED')");
+        try {
+            expect(headerCall(null,"X-Purchase-Token",guest.purchase(),"POST",guest.resultPath(),Map.of("outcome","SUCCEEDED")),409);
+            assertThat(jdbc.queryForObject("select count(*) from order_access_token where order_id=?",Integer.class,guest.id())).isZero();
+            assertThat(jdbc.queryForObject("select status from customer_order where id=?",String.class,guest.id())).isEqualTo("PENDING_PAYMENT");
+            assertThat(delivery.sendNext()).isFalse();
+            org.mockito.Mockito.verifyNoInteractions(mail);
+        } finally {
+            jdbc.execute("ALTER TABLE payment_attempt DROP CONSTRAINT test_guest_payment_failure");
+        }
+        pay(guest);
+        assertThat(jdbc.queryForObject("select count(*) from order_access_token where order_id=?",Integer.class,guest.id())).isEqualTo(1);
+    }
+
+    @Test
+    void trackingOpenApiCorsAndInvalidRequestsMatchContract() throws Exception {
+        var api=get(null,"/v3/api-docs");
+        assertThat(api.at("/paths/~1api~1order-tracking/get/security/0/trackingToken").isArray()).isTrue();
+        assertThat(api.at("/paths/~1api~1order-tracking~1link-requests/post/security").isEmpty()).isTrue();
+        assertThat(api.at("/paths/~1api~1guest~1orders~1{id}~1tracking-link/get/security/0/purchaseToken").isArray()).isTrue();
+        problem(call(null,"POST","/api/order-tracking/link-requests",Map.of("orderNumber","bad","email","bad")),400,"VALIDATION_FAILED");
+        var preflight=HttpRequest.newBuilder(URI.create("http://localhost:"+port+"/api/order-tracking"))
+                .header("Origin","http://localhost:4200").header("Access-Control-Request-Method","GET")
+                .header("Access-Control-Request-Headers","X-Tracking-Token").method("OPTIONS",HttpRequest.BodyPublishers.noBody()).build();
+        var response=http.send(preflight,HttpResponse.BodyHandlers.ofString());
+        assertThat(response.statusCode()).isEqualTo(200);
+        assertThat(response.headers().firstValue("access-control-allow-headers").orElseThrow()).containsIgnoringCase("X-Tracking-Token");
+    }
+
+    private record GuestPurchase(UUID id, String cart, String purchase, UUID payment) {
+        String resultPath() { return "/api/guest/orders/"+id+"/payments/"+payment+"/simulation-result"; }
+    }
+    private GuestPurchase guestPurchase() throws Exception {
+        String product=offer(details(brand(),"Tracking"),"20.00",5);
+        String cart=newGuest();
+        expect(guestCall(cart,"PUT","/items/"+product,Map.of("quantity",2)),200);
+        var quote=expect(headerCall(null,"X-Cart-Token",cart,"POST","/api/guest/orders/preview",previewInput()),200);
+        String purchase=quote.get("purchaseToken").asText();
+        var order=expect(headerCall(null,"X-Purchase-Token",purchase,"POST","/api/guest/orders",
+                Map.of("quoteId",quote.get("id").asText(),"checkoutKey",UUID.randomUUID())),201);
+        UUID id=UUID.fromString(order.get("id").asText());
+        var payment=expect(headerCall(null,"X-Purchase-Token",purchase,"POST","/api/guest/orders/"+id+"/payments",
+                Map.of("requestKey",UUID.randomUUID())),201);
+        return new GuestPurchase(id,cart,purchase,UUID.fromString(payment.get("id").asText()));
+    }
+    private void pay(GuestPurchase guest) throws Exception {
+        expect(headerCall(null,"X-Purchase-Token",guest.purchase(),"POST",guest.resultPath(),Map.of("outcome","SUCCEEDED")),200);
+    }
+    private String trackingToken(JsonNode link) { return link.get("trackingUrl").asText().split("#token=")[1]; }
+    private HttpResponse<String> track(String token) throws Exception {
+        return headerCall(null,"X-Tracking-Token",token,"GET","/api/order-tracking",null);
     }
 
     private Map<String,Object> deliveryAddress() {

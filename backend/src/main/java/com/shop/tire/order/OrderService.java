@@ -112,6 +112,7 @@ public class OrderService {
         var paidAt = inventory.sellReserved(id,order.snapshot().quantities(),order.expiresAt());
         if (paidAt == null) { release(order,"EXPIRED"); return false; }
         orders.paid(id,paidAt);
+        events.publishEvent(new OrderPaid(id,paidAt));
         return true;
     }
     public void expire(UUID id) {

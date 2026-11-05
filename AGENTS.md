@@ -92,6 +92,7 @@ Logowanie jest dostępne podczas przeglądania katalogu, w koszyku i przed zło�
 - Dostęp do linku na ekranie potwierdzenia wymaga uprawnienia do danego zakupu; sam identyfikator zamówienia nie wystarcza.
 - Pierwszy link jest ważny 90 dni od potwierdzenia zapłaty. Gość może otrzymać nowy link wyłącznie na adres e-mail zapisany w zamówieniu; odnowiony link jest ważny 90 dni od wydania.
 - Ponowne wydanie nie ujawnia tokenu w publicznej odpowiedzi API ani nie pozwala wybrać innego adresu odbiorcy. Ogranicz częstotliwość żądań i nie ujawniaj, czy podane zamówienie istnieje. Nie loguj tokenu ani pełnego linku.
+- Decyzja z 5 listopada 2026: wiadomości z linkami używają małej kolejki w PostgreSQL z ponawianiem, bez brokera. Zapis kolejki należy do transakcji płatności, SMTP działa po commit. Awaria poczty nie cofa zapłaty. Chronimy zaszyfrowaną treść kolejki osobnym TRACKING_SECRET i usuwamy ją po zakończeniu zadania. Nie obiecujemy dokładnie jednej wysyłki SMTP.
 
 ### Konto klienta
 
@@ -236,7 +237,9 @@ Czwarty etap: podsumowanie zakupu, zamówienie z kopią danych, rezerwacja na 15
 
 Piąty etap: backend symulatora płatności klienta/gościa, historia prób, sukces/odrzucenie/anulowanie, ponowienia oraz atomowe wydanie zarezerwowanego towaru. V7 dodaje payment_attempt, paid_at i systemowe wpisy SALE powiązane z pozycją zamówienia. Płatność blokuje ten sam wiersz zamówienia co anulowanie/wygaśnięcie i sprawdza termin ponownie po uzyskaniu blokad magazynu. Jedna próba PENDING na zamówienie; requestKey zapewnia bezpieczne ponowienie utworzenia. Anulowanie zamówienia zamyka oczekującą próbę w tej samej transakcji. Kontrakt: `docs/payment-api.md`.
 
-Linki śledzenia, wiadomości po zapłacie, ekran Angulara i realizacja pracownicza pozostają do implementacji. Nowe domeny używają błędów niezależnych od HTTP; porządkowanie istniejącego `ApiException` oraz request ID są nadal osobnymi zadaniami.
+Szósty etap: link śledzenia gościa po zapłacie, odczyt wyłącznie statusu/numeru przesyłki, odnawianie na zapisany e-mail i kolejka wiadomości z maksymalnie 5 próbami. V8 dodaje order_access_token, order_email_outbox, tracking_request_limit i tracking_number w zamówieniu. Pierwszy link jest ważny 90 dni od zapłaty; odnowiony 90 dni od wydania, bez unieważniania starych. Publiczne odnowienie zawsze odpowiada 202 dla poprawnego formatu, z limitami 10 żądań/15 min na adres sieciowy i 1/15 min na numer zamówienia. TRACKING_SECRET szyfruje payload poczty i czasową kopię pierwszego tokenu dla uprawnionego ekranu potwierdzenia; dostęp weryfikowany jest po hashu. Kontrakt: `docs/tracking-api.md`.
+
+Ekran Angulara i realizacja pracownicza pozostają do implementacji. Nowe domeny używają błędów niezależnych od HTTP; porządkowanie istniejącego `ApiException` oraz request ID są nadal osobnymi zadaniami.
 
 ## Poza zakresem MVP
 
