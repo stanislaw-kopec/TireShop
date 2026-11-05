@@ -388,6 +388,127 @@ class CatalogInventoryIntegrationTests {
         assertThat(paths.get("/api/employee/tires").get("post").get("responses").has("201")).isTrue();
     }
 
+    @Test
+    void cartsCalculateDeliveryFromAllProductsAndDoNotReserveStock() throws Exception {
+        String a = offer(details(brand(), "Cart A"), "100.10", 10);
+        String b = offer(details(brand(), "Cart B"), "50.20", 10);
+        String token = newGuest();
+        expect(guestCall(token, "PUT", "/items/" + a, Map.of("quantity", 3)), 200);
+        var three = expect(guestCall(token, "GET", "", null), 200);
+        assertThat(three.get("shippingGross").decimalValue()).isEqualByComparingTo("20.00");
+        var four = expect(guestCall(token, "PUT", "/items/" + b, Map.of("quantity", 1)), 200);
+        assertThat(four.get("shippingGross").decimalValue()).isEqualByComparingTo("0.00");
+        assertThat(four.get("totalGross").decimalValue()).isEqualByComparingTo("350.50");
+        assertThat(four.get("readyForCheckout").asBoolean()).isTrue();
+        assertThat(get(employee, stock(a)).get("reserved").asInt()).isZero();
+        setPrice(a, "200.00");
+        assertThat(expect(guestCall(token, "GET", "", null), 200).get("totalGross").decimalValue()).isEqualByComparingTo("650.20");
+        expect(guestCall(token, "DELETE", "/items/" + a, null), 200);
+        var empty = expect(guestCall(token, "DELETE", "/items/" + b, null), 200);
+        assertThat(empty.get("readyForCheckout").asBoolean()).isFalse();
+        assertThat(empty.get("totalGross").decimalValue()).isZero();
+    }
+
+    @Test
+    void customerCartsArePrivateAndGuestTokensAreNotJwtOrCookies() throws Exception {
+        String id = offer(details(brand(), "Private cart"), "90.00", 10);
+        String other = loginFixture("CUSTOMER");
+        String guest = newGuest();
+        expect(call(customer, "PUT", "/api/cart/items/" + id, Map.of("quantity", 2)), 200);
+        assertThat(get(other, "/api/cart").get("items").isEmpty()).isTrue();
+        assertThat(expect(guestCall(guest, "GET", "", null), 200).get("items").isEmpty()).isTrue();
+        problem(call(null, "GET", "/api/cart", null), 401, "AUTHENTICATION_REQUIRED");
+        problem(call(employee, "GET", "/api/cart", null), 403, "ACCESS_DENIED");
+        problem(call(admin, "GET", "/api/cart", null), 403, "ACCESS_DENIED");
+        problem(guestCall(null, "GET", "", null), 404, "CART_NOT_FOUND");
+        problem(guestCall(customer, "GET", "", null), 404, "CART_NOT_FOUND");
+        problem(call(null, "GET", "/api/guest/cart?token=" + guest, null), 404, "CART_NOT_FOUND");
+        var cookie = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/guest/cart")).header("Cookie", "cart=" + guest).GET().build();
+        problem(http.send(cookie, HttpResponse.BodyHandlers.ofString()), 404, "CART_NOT_FOUND");
+        assertThat(jdbc.queryForObject("select count(*) from shopping_cart where guest_token_hash=?", Integer.class, guest)).isZero();
+    }
+
+    @Test
+    void cartWritesValidateQuantityAndShowWithdrawnItemsWithoutLosingThem() throws Exception {
+        String id = offer(details(brand(), "Availability"), "50.00", 4);
+        String token = newGuest();
+        problem(guestCall(token, "PUT", "/items/" + id, Map.of("quantity", 5)), 409, "CART_PRODUCT_UNAVAILABLE");
+        problem(guestCall(token, "PUT", "/items/" + id, Map.of("quantity", 0)), 400, "VALIDATION_FAILED");
+        problem(guestCall(token, "PUT", "/items/" + id, Map.of("quantity", "2")), 400, "INVALID_REQUEST");
+        problem(guestCall(token, "PUT", "/items/" + id, Map.of("quantity", 1, "priceGross", 1)), 400, "INVALID_REQUEST");
+        expect(guestCall(token, "PUT", "/items/" + id, Map.of("quantity", 4)), 200);
+        expect(guestCall(token, "PUT", "/items/" + id, Map.of("quantity", 4)), 200);
+        assertThat(expect(guestCall(token, "GET", "", null), 200).get("totalQuantity").asLong()).isEqualTo(4);
+        jdbc.update("update inventory set reserved=1 where product_id=?", UUID.fromString(id));
+        var reduced = expect(guestCall(token, "GET", "", null), 200);
+        assertThat(reduced.get("readyForCheckout").asBoolean()).isFalse();
+        assertThat(reduced.at("/items/0/issue").asText()).isEqualTo("INSUFFICIENT_STOCK");
+        expect(call(admin, "PUT", sale(id), Map.of("onSale", false)), 200);
+        assertThat(expect(guestCall(token, "GET", "", null), 200).at("/items/0/issue").asText()).isEqualTo("NOT_FOR_SALE");
+        expect(guestCall(token, "DELETE", "/items/" + id, null), 200);
+    }
+
+    @Test
+    void mergeIsAtomicAndCanBeRetriedWithoutDoublingItems() throws Exception {
+        String id = offer(details(brand(), "Merge"), "10.00", 3);
+        String token = newGuest();
+        expect(guestCall(token, "PUT", "/items/" + id, Map.of("quantity", 2)), 200);
+        expect(call(customer, "PUT", "/api/cart/items/" + id, Map.of("quantity", 2)), 200);
+        problem(mergeCall(customer, token), 409, "CART_MERGE_UNAVAILABLE");
+        assertThat(get(customer, "/api/cart").get("totalQuantity").asLong()).isEqualTo(2);
+        assertThat(expect(guestCall(token, "GET", "", null), 200).get("totalQuantity").asLong()).isEqualTo(2);
+        receive(id, 2);
+        assertThat(expect(mergeCall(customer, token), 200).get("totalQuantity").asLong()).isEqualTo(4);
+        assertThat(expect(mergeCall(customer, token), 200).get("totalQuantity").asLong()).isEqualTo(4);
+        problem(guestCall(token, "GET", "", null), 404, "CART_NOT_FOUND");
+        problem(mergeCall(loginFixture("CUSTOMER"), token), 404, "CART_NOT_FOUND");
+        assertThat(get(employee, stock(id)).get("reserved").asInt()).isZero();
+    }
+
+    @Test
+    void concurrentMergesDoNotLoseDifferentProductsOrDoubleSameGuest() throws Exception {
+        String a = offer(details(brand(), "Merge A"), "10.00", 10);
+        String b = offer(details(brand(), "Merge B"), "10.00", 10);
+        String first = newGuest();
+        String second = newGuest();
+        expect(guestCall(first, "PUT", "/items/" + a, Map.of("quantity", 2)), 200);
+        expect(guestCall(second, "PUT", "/items/" + b, Map.of("quantity", 2)), 200);
+        var requests = List.of(mergeRequest(customer, first), mergeRequest(customer, first), mergeRequest(customer, second));
+        for (var response : parallel(requests)) expect(response, 200);
+        var result = get(customer, "/api/cart");
+        assertThat(result.get("totalQuantity").asLong()).isEqualTo(4);
+        assertThat(result.get("items").size()).isEqualTo(2);
+    }
+
+    @Test
+    void guestExpiryIsEnforcedForReadingWritingAndMerging() throws Exception {
+        String token = newGuest();
+        String hash = HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(token.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        jdbc.update("update shopping_cart set expires_at=now()-interval '1 second' where guest_token_hash=?", hash);
+        problem(guestCall(token, "GET", "", null), 404, "CART_NOT_FOUND");
+        problem(guestCall(token, "DELETE", "/items/" + UUID.randomUUID(), null), 404, "CART_NOT_FOUND");
+        problem(mergeCall(customer, token), 404, "CART_NOT_FOUND");
+    }
+
+    private String newGuest() throws Exception {
+        var response = call(null, "POST", "/api/guest/cart", null);
+        assertThat(response.headers().allValues("set-cookie")).isEmpty();
+        assertThat(response.headers().firstValue("cache-control").orElse("")).contains("no-store");
+        return expect(response, 201).get("token").asText();
+    }
+    private HttpResponse<String> guestCall(String token, String method, String suffix, Object body) throws Exception {
+        var builder = HttpRequest.newBuilder(request(null, method, "/api/guest/cart" + suffix, body), (name, value) -> true);
+        if (token != null) builder.header("X-Cart-Token", token);
+        return http.send(builder.build(), HttpResponse.BodyHandlers.ofString());
+    }
+    private HttpRequest mergeRequest(String jwt, String guest) {
+        return HttpRequest.newBuilder(request(jwt, "POST", "/api/cart/merge", null), (name, value) -> true).header("X-Cart-Token", guest).build();
+    }
+    private HttpResponse<String> mergeCall(String jwt, String guest) throws Exception {
+        return http.send(mergeRequest(jwt, guest), HttpResponse.BodyHandlers.ofString());
+    }
+
     private String loginFixture(String role) throws Exception {
         String email = UUID.randomUUID() + "@example.test";
         jdbc.update("insert into app_account (id,email,password_hash,role,status,first_name,last_name,created_at,updated_at) values (?,?,?,?,'ACTIVE','Catalog','Test',now(),now())",

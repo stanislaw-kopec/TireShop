@@ -34,6 +34,10 @@ public class CatalogService {
     @Transactional(readOnly = true)
     public TireResponse get(UUID id) { return queries.find(id, true).orElseThrow(CatalogService::notFound); }
 
+    // Internal read projection: carts must also show previously selected, withdrawn products.
+    @Transactional(readOnly = true)
+    public java.util.List<TireResponse> cartProducts(java.util.Collection<UUID> ids) { return queries.findAll(ids); }
+
     @Transactional(readOnly = true)
     public PageResponse<ManufacturerResponse> manufacturers(int page, int size) { return queries.manufacturers(page, size); }
 

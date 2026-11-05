@@ -17,7 +17,7 @@ class JwtApiDocumentation {
             api.getComponents().addSecuritySchemes("bearerAuth", new SecurityScheme()
                     .type(SecurityScheme.Type.HTTP).scheme("bearer").bearerFormat("JWT"));
             api.getPaths().forEach((path, item) -> {
-                if (path.startsWith("/api/account/") || path.startsWith("/api/admin/")
+                if (path.equals("/api/cart") || (path.startsWith("/api/cart/") && !path.equals("/api/cart/merge")) || path.startsWith("/api/account/") || path.startsWith("/api/admin/")
                         || path.startsWith("/api/employee/") || path.startsWith("/api/staff/") || path.equals("/api/auth/logout")) {
                     item.readOperations().forEach(operation -> {
                         operation.addSecurityItem(new SecurityRequirement().addList("bearerAuth"));

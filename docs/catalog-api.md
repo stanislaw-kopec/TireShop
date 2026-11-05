@@ -123,4 +123,4 @@ Format `application/problem+json`, zgodny z API kont. Nieznane pola body są odr
 - 404 `PRODUCT_NOT_FOUND`: brak produktu lub brak jego publicznej dostępności.
 - 409 `PRICE_REQUIRED`, `INSUFFICIENT_STOCK`, `STOCK_LIMIT_EXCEEDED`, `OPERATION_ID_REUSED` lub `DATA_CONFLICT`: niedozwolona zmiana albo konflikt zapisu. Równoczesne użycie jednego operationId dla różnych produktów może zwrócić ogólny `DATA_CONFLICT`; żadna z operacji nie nadpisuje wcześniejszej historii.
 
-Migracja V4 dodaje `manufacturer`, `tire_product`, `inventory`, `inventory_change`. Nie zmienia migracji kont ani danych istniejącej bazy. Koszyk, zamówienia, rezerwacje czasowe, płatności i śledzenie zamówień pozostają kolejnymi etapami.
+Migracja V4 dodaje `manufacturer`, `tire_product`, `inventory`, `inventory_change`. Nie zmienia migracji kont ani danych istniejącej bazy. Koszyk jest zaimplementowany w V5 i opisany w [API koszyka](cart-api.md). Zamówienia, rezerwacje czasowe, płatności i śledzenie zamówień pozostają kolejnymi etapami.

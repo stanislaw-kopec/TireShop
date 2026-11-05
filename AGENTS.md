@@ -36,6 +36,9 @@ Logowanie jest dostępne podczas przeglądania katalogu, w koszyku i przed zło�
 
 ### Koszyk i zakup
 
+- Decyzja z 5 listopada 2026: gość używa osobnego losowego tokenu koszyka w nagłówku `X-Cart-Token`, bez cookie. Przyszły Angular przechowuje go w `sessionStorage` do zamknięcia karty. Backend przechowuje skrót tokenu i ogranicza jego ważność do 24 godzin od utworzenia; zamknięcie karty nie jest zdarzeniem wiarygodnie wykrywalnym przez backend.
+- Jeśli podczas scalania brakuje towaru lub produkt jest niedostępny, zwróć konflikt i zachowaj oba koszyki bez zmian. Nie zmniejszaj samoczynnie ilości. Po sukcesie token gościa nie daje dostępu do koszyka klienta; pozwala jedynie bezpiecznie ponowić scalanie z tym samym zalogowanym kontem do pierwotnego terminu ważności.
+
 - Zakupy jako gość lub zalogowany klient. Odczyt koszyka, zmiana ilości i usuwanie pozycji.
 - Po zalogowaniu połącz koszyk gościa z koszykiem konta, sumując ilości tych samych produktów i sprawdzając dostępność. Operacja nie rezerwuje towaru i nie może powielać ilości przy ponowieniu tego samego scalenia.
 - Backend sprawdza dostępność i oblicza ceny oraz sumy. Nie ufa kwotom ani identyfikatorowi właściciela przesłanym przez klienta API.
@@ -214,7 +217,7 @@ Logowanie jest dostępne podczas przeglądania katalogu, w koszyku i przed zło�
 
 1. **Zmiana ceny w koszyku:** proponowane jest potwierdzenie aktualnej kwoty przez klienta przed utworzeniem zamówienia, jeżeli cena uległa zmianie.
 2. **Anulowanie zamówienia:** proponowane MVP pozwala klientowi anulować tylko nieopłacone zamówienie. Anulowanie opłaconych zamówień wymaga procesu zwrotu i pozostaje poza obecnym zakresem.
-3. **Koszyk gościa:** po przejściu na JWT trzeba osobno ustalić identyfikację anonimowego właściciela, czas życia i przechowywanie jego koszyka. Access token konta nie identyfikuje gościa; nie przywracaj sesji logowania dla rozwiązania tego problemu. Bootstrap administratora jest opcjonalny; zaproszenia (24 h) i reset (30 min) trafiają lokalnie do Mailpit.
+3. **Koszyk gościa:** mechanizm tokenu został ustalony 5 listopada 2026 i opisany w wymaganiach. Dłuższe przechowywanie między sesjami przeglądarki pozostaje poza bieżącym zakresem.
 4. **Adres wpisany przy zakupie:** proponowane jest osobne, świadome zapisanie go na koncie. Zmiana adresu dla pojedynczego zamówienia nie powinna po cichu nadpisywać adresu profilu.
 
 Wstępny projekt relacji i uzasadnienia znajdują się w `docs/backend-design.md`. Pozostałe propozycje tego dokumentu nie stają się wymaganiami bez ich uzgodnienia.
@@ -225,7 +228,9 @@ Pierwszy etap: konta, profil i adres, zaproszenia pracowników oraz reset haseł
 
 Drugi etap: publiczny katalog z filtrami, paginacją i sortowaniem po cenie; odczyt wszystkich produktów dla personelu; tworzenie i edycja parametrów przez pracownika; cena i dopuszczenie do sprzedaży przez admina; przyjęcia, korekty i historia magazynu. V4 tworzy `manufacturer`, `tire_product`, `inventory` i `inventory_change`. Zdjęcie jest opcjonalnym adresem HTTPS, bez uploadu plików. Nowy produkt i zerowy stan powstają atomowo. Ruch magazynowy wymaga UUID `operationId`; ponowienie tej samej operacji nie zmienia stanu ponownie. Szczegóły walidacji i kontrakt: `docs/catalog-api.md`.
 
-Koszyk, zamówienia, tworzenie i wygaszanie rezerwacji, wydania po zapłacie, płatności i śledzenie pozostają do implementacji. `reserved` jest już chronione ograniczeniem bazy i regułą korekt, ale nie ma jeszcze endpointu tworzącego rezerwacje. Nowe domeny używają błędów niezależnych od HTTP; porządkowanie istniejącego `ApiException` oraz request ID są nadal osobnymi zadaniami.
+Trzeci etap: koszyk CUSTOMER i gościa, aktualne ceny, podsumowanie dostawy oraz atomowe, odporne na ponowienia scalanie. V5 dodaje `shopping_cart` i `cart_item`; domena cart korzysta z repozytorium JDBC. Maksymalnie 100 różnych produktów, PUT ustawia ilość docelową. Kontrakt: `docs/cart-api.md`. Frontend ma wywołać scalanie po logowaniu; samo logowanie nie konsumuje koszyka gościa.
+
+Zamówienia, tworzenie i wygaszanie rezerwacji, wydania po zapłacie, płatności i śledzenie pozostają do implementacji. `reserved` jest już chronione ograniczeniem bazy i regułą korekt, ale nie ma jeszcze endpointu tworzącego rezerwacje. Nowe domeny używają błędów niezależnych od HTTP; porządkowanie istniejącego `ApiException` oraz request ID są nadal osobnymi zadaniami.
 
 ## Poza zakresem MVP
 

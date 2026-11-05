@@ -42,6 +42,12 @@ class CatalogQueryRepository {
                 + (publicOnly ? " AND " + VISIBLE : ""), Map.of("id", id), (rs, row) -> tire(rs)).stream().findFirst();
     }
 
+    List<TireResponse> findAll(Collection<UUID> ids) {
+        if (ids.isEmpty()) return List.of();
+        return jdbc.query("SELECT " + COLUMNS + FROM + " WHERE p.id IN (:ids) ORDER BY p.id",
+                Map.of("ids", ids), (rs, row) -> tire(rs));
+    }
+
     PageResponse<ManufacturerResponse> manufacturers(int page, int size) {
         String from = " FROM manufacturer m WHERE EXISTS (SELECT 1 FROM tire_product p "
                 + "JOIN inventory i ON p.id = i.product_id WHERE p.manufacturer_id = m.id AND " + VISIBLE + ")";

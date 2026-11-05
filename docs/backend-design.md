@@ -4,7 +4,7 @@ Stan: projekt z 9 października, aktualizacja uwierzytelniania oraz katalogu i m
 
 Pierwszy etap obejmuje `app_account`, `account_address`, `account_action_token`, rejestrację, JWT Bearer, profil i adres, wyszukiwanie kont przez administratora, zaproszenia i reset haseł. JWT zastąpił sesje HTTP: historyczne V1/V2 pozostają, a V3 usuwa tabele Spring Session. Kontrakt: [backend-api.md](backend-api.md).
 
-Drugi etap (V4) dodaje `manufacturer`, `tire_product`, `inventory` i `inventory_change`: katalog publiczny i personelu, parametry produktu, ceny, dopuszczenie sprzedaży, dostawy, korekty oraz historię magazynu. Kontrakt: [catalog-api.md](catalog-api.md). Bieżący schemat ma 7 tabel domenowych. Rezerwacje, koszyk, zamówienia i płatności w poniższym diagramie pozostają dalszym projektem.
+Drugi etap (V4) dodaje `manufacturer`, `tire_product`, `inventory` i `inventory_change`: katalog publiczny i personelu, parametry produktu, ceny, dopuszczenie sprzedaży, dostawy, korekty oraz historię magazynu. Kontrakt: [catalog-api.md](catalog-api.md). V5 (5 listopada 2026) dodaje `shopping_cart` i `cart_item`; bieżący schemat ma 9 tabel domenowych. Kontrakt: [cart-api.md](cart-api.md). Rezerwacje, zamówienia i płatności w poniższym diagramie pozostają dalszym projektem. Symbol CART w diagramie odpowiada tabeli `shopping_cart`.
 
 ## Przyjęte decyzje
 
@@ -68,8 +68,8 @@ Typy wspólne: identyfikatory `uuid`, kwoty `numeric(12,2)`, czas `timestamptz` 
 | `manufacturer` / catalog | `id PK`, `name`, `normalized_name UNIQUE` | Jedna marka, np. Dębica. Normalizacja zapobiega duplikatom różniącym się spacjami lub wielkością liter. |
 | `tire_product` / catalog | `id PK`, `manufacturer_id FK`, `model`, `normalized_model`, `width_mm`, `aspect_ratio`, `rim_diameter_in`, `season`, `image_url NULL`, `price_gross NULL`, `on_sale DEFAULT false`, `created_at`, `updated_at`, `version` | Jeden wariant produktu. Unikalna kombinacja marki, znormalizowanego modelu, rozmiaru i sezonu. Cena dodatnia albo NULL; NULL nie oznacza zera. `on_sale` zmienia tylko admin; włączenie sprzedaży wymaga ustalonej ceny. `image_url` to opcjonalny adres HTTPS, nie obraz w bazie. |
 | `inventory` / inventory | `product_id PK/FK`, `on_hand`, `reserved`, `version`, `updated_at` | `0 <= reserved <= on_hand`. Dostępne = `on_hand - reserved`; nie zapisujemy trzeciego niezależnego licznika. Produkt i stan początkowy 0 tworzone atomowo. |
-| `cart` / cart | `id PK`, `account_id FK NULL UNIQUE`, `guest_owner_key NULL UNIQUE`, `updated_at`, `version` | Dokładnie jeden właściciel: konto albo anonimowy kontekst. Jeden aktywny koszyk klienta. `guest_owner_key` jest wewnętrznym identyfikatorem właściciela; mechanizm przekazania dowodu dostępu gościa wymaga ustalenia po zmianie na JWT. |
-| `cart_item` / cart | `id PK`, `cart_id FK`, `product_id FK`, `quantity` | UNIQUE(cart_id, product_id), quantity > 0. Cena odczytywana z katalogu; koszyk niczego nie rezerwuje. |
+| `shopping_cart` / cart | `id PK`, `account_id FK NULL UNIQUE`, `guest_token_hash NULL UNIQUE`, `expires_at NULL`, `merged_account_id FK NULL`, `created_at` | Konto albo skrót tokenu gościa (CHECK). Jeden koszyk konta. Wiersz gościa po scaleniu zachowuje odbiorcę dla idempotencji; dostęp ograniczony terminem. Blokada FOR UPDATE serializuje zmiany, przy scalaniu najpierw gość, potem konto. |
+| `cart_item` / cart | `cart_id FK`, `product_id FK`, `quantity` | Złożony PK(cart_id, product_id), quantity > 0. Cena odczytywana z katalogu; koszyk niczego nie rezerwuje. |
 | `customer_order` / order | `id PK`, `order_number UNIQUE`, `account_id FK NULL`, `guest_owner_key NULL`, `status`, `contact_email`, `contact_phone`, pola adresu dostawy, `currency`, `items_total_gross`, `shipping_gross`, `total_gross`, `created_at`, `reservation_expires_at`, `paid_at NULL`, `tracking_number NULL`, `shipped_at NULL`, `delivered_at NULL`, `cancellation_reason NULL`, `checkout_key UNIQUE`, `checkout_request_hash`, `version` | Dokładnie jeden właściciel podczas zakupu: konto albo kontekst gościa. Zamówienie gościa nie tworzy fikcyjnego konta. Adres i kontakt są kopią z chwili zakupu. `checkout_key` chroni przed podwójnym kliknięciem zakupu; wynik dostępny tylko uprawnionemu właścicielowi. |
 | `order_item` / order | `id PK`, `order_id FK`, `product_id FK`, `quantity`, `manufacturer_name`, `model`, `width_mm`, `aspect_ratio`, `rim_diameter_in`, `season`, `unit_price_gross`, `line_total_gross` | UNIQUE(order_id, product_id), quantity > 0. Dane opisowe i cena są niezmiennym snapshotem. FK nie zastępuje kopii. |
 | `payment_attempt` / payment | `id PK`, `order_id FK`, `status`, `amount_gross`, `currency`, `created_at`, `finished_at NULL`, `failure_code NULL` | Jedno zamówienie może mieć wiele prób, ale najwyżej jedną oczekującą i jedną udaną. Kwota z zamówienia, nie z przeglądarki. ID próby nie daje prawa zmiany wyniku. |
@@ -127,7 +127,7 @@ Kontrakt i konfiguracja: [API](backend-api.md), [README](../README.md). Przeło�
 
 JWT dotyczy zalogowanego konta. Gość nie ma fikcyjnego konta ani takiego JWT. Poprzedni projekt wiązał go z anonimową sesją; po zmianie logowania nie należy bez uzgodnienia przywracać tego mechanizmu.
 
-Przed implementacją koszyka trzeba wybrać dowód dostępu gościa, jego przechowywanie i czas życia (np. losowy token ograniczony do koszyka, sprawdzany po skrócie). Cookie wymaga rozpatrzenia CSRF, a token w pamięci przeglądarki — zachowania po odświeżeniu strony. `guest_owner_key` w ERD jest wewnętrznym powiązaniem, nie dowodem dostępu podawanym dowolnie przez klienta. To otwarta decyzja, bez implementowania teraz dodatkowego mechanizmu.
+Wybrano osobny losowy token gościa (32 bajty), przesyłany w X-Cart-Token, przechowywany przez przyszły Angular w sessionStorage do zamknięcia karty. Baza przechowuje SHA-256, backend egzekwuje maksymalnie 24 godziny ważności. Nie ma cookie ani przywracania sesji logowania. Scalanie sprawdza całe sumy ilości i przy konflikcie pozostawia oba koszyki bez zmian. Dowód dostępu do przyszłego zamówienia gościa wymaga osobnego zaprojektowania; token koszyka po scaleniu nie uprawnia do konta ani zamówień.
 
 Niezależnie od wyboru pozostają reguły:
 
@@ -157,7 +157,7 @@ Jeśli akceptujemy outbox: zapis zadania wiadomości razem z zatwierdzeniem zam�
 1. Migracje Flyway, globalne błędy, szkic API i testy PostgreSQL. Nie generować całego schematu bez uzgodnienia otwartych decyzji. Fundament i migracje kont są zaimplementowane; V3 usuwa historyczne sesje.
 2. Konta, logowanie JWT, role, właściciel zasobu, zaproszenia/reset. Frontend nie jest potrzebny do testów tego etapu.
 3. Katalog i podstawowy magazyn wraz z uprawnieniami pracownika/admina — zaimplementowane w V4. Rezerwacje i wydania sprzedażowe pozostają przy etapach zamówień/płatności.
-4. Koszyk gościa/klienta i bezpieczne łączenie po zalogowaniu.
+4. Koszyk gościa/klienta i bezpieczne łączenie po zalogowaniu — zaimplementowane w V5.
 5. Zamówienia, snapshoty, dostawa, atomowa rezerwacja i wygaśnięcie; idempotencja checkoutu. Ten sam klucz z inną treścią żądania zwraca konflikt, nie nowe zamówienie.
 6. Symulator płatności, linki gościa i wiadomości. Testy wyścigów oraz duplikatów.
 7. Realizacja zamówień przez pracownika, historia statusów, numer przesyłki i uzupełnienie testów uprawnień.
