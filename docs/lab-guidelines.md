@@ -49,6 +49,6 @@ Materiały źródłowe dostarczył użytkownik; nie kopiujemy ich do repozytoriu
 
 Kod otrzymuje JWT, sprawdzanie claims i aktualnego stanu konta, Bearer w Swaggerze, konfigurację CORS, nową migrację oraz testy. Instrukcja uruchomienia i kontrakt API są aktualizowane razem z kodem.
 
-`AGENTS.md` zawiera także zasady dla kolejnych etapów, a nie deklarację, że cały kod już je realizuje. Przykładowo request ID, odseparowanie istniejącego `ApiException` od HTTP, ujednolicenie szczegółów wszystkich błędów parametrów i ścisła kontrola konwersji typów JSON pozostają pracą do wykonania przy rozwoju odpowiednich mechanizmów. Katalog, koszyk i zamówienia nie są implementowane przy okazji zmiany logowania.
+Powyższy opis dotyczy etapu przejścia na JWT. W kolejnych etapach wdrożono katalog, koszyk, zamówienia, płatności, śledzenie i realizację pracowniczą, a także ścisłą kontrolę typów JSON oraz wspólny format błędów parametrów. Aktualny zakres i ograniczenia weryfikacji opisuje [raport MVP](mvp-verification.md). Request ID i odseparowanie istniejącego `ApiException` od HTTP pozostają osobnymi zadaniami technicznymi; nie blokują uzgodnionej ścieżki zakupu.
 
 Przy integracji korzystamy ze standardowego mechanizmu [Spring Security JWT Resource Server](https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html). Zasady dotyczące ciasteczek i CSRF trzeba rozpatrywać zgodnie z [dokumentacją CSRF Spring Security](https://docs.spring.io/spring-security/reference/features/exploits/csrf.html), niezależnie od formatu tokenu.

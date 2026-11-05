@@ -49,7 +49,7 @@ Po błędzie SMTP następują ponowienia po 1, 2, 4 i 8 minutach — łącznie m
 
 SMTP nie gwarantuje dokładnie jednej wiadomości: awaria po przyjęciu e-maila, lecz przed zatwierdzeniem SENT w bazie może spowodować ponowną wysyłkę tej samej wiadomości. Link pozostaje ten sam. Po SENT/FAILED zaszyfrowana treść jest usuwana; pozostają metadane zadania.
 
-Lokalnie wiadomości trafiają do Mailpit: http://localhost:8025. Podczas testów JavaMailSender jest zastępowany atrapą; nie wysyłamy poczty do rzeczywistych odbiorców.
+Lokalnie wiadomości trafiają do Mailpit: http://localhost:8025. Testy awarii i ponowień zastępują JavaMailSender atrapą. Pełny scenariusz `MvpJourneyIntegrationTests` wysyła rzeczywiste SMTP do osobnego kontenera Mailpit i sprawdza treść otrzymanej wiadomości; nie wysyłamy poczty do rzeczywistych odbiorców.
 
 ## Konfiguracja i przechowywanie sekretów
 

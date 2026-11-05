@@ -92,7 +92,7 @@ Zaproszenie pracownika jest ważne 24 godziny, reset hasła 30 minut. Wiadomośc
 
 W profilu `external` skonfiguruj także `MAIL_HOST`, `MAIL_PORT`, `MAIL_FROM`, opcjonalnie `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_AUTH`, `MAIL_STARTTLS` oraz `PASSWORD_LINK_URL` (stały adres zaufanego frontendu). Poza lokalnym developmentem przesyłaj JWT wyłącznie przez HTTPS.
 
-W tym etapie wysyłka zaproszeń/resetów jest synchroniczna: brak dostępu do poczty zwraca 503 i wycofuje zmianę tokenu/konta, umożliwiając ponowienie. Nie ma jeszcze trwałej kolejki ani automatycznego ponawiania wysyłki.
+Wysyłka zaproszeń/resetów jest synchroniczna: brak dostępu do poczty zwraca 503 i wycofuje zmianę tokenu/konta, umożliwiając ponowienie. Te wiadomości nie korzystają z kolejki; trwała kolejka i automatyczne ponowienia dotyczą linków śledzenia zamówień gościa.
 
 ## Testy i budowanie
 
@@ -102,7 +102,9 @@ Z katalogu `backend`:
 .\mvnw.cmd verify
 ```
 
-Testy HTTP używają profilu `test` oraz osobnego PostgreSQL 17 uruchamianego przez Testcontainers. Wymagają działającego Dockera i nie dotykają lokalnej bazy sklepu. Sprawdzają migracje, JWT (w tym błędne i wygasłe tokeny), brak sesji, uprawnienia, CORS, adresy, zaproszenia i resetowanie haseł. Testy katalogu i magazynu obejmują filtry, ceny, niezależność ról, walidację, rejestr zmian, ponowienia i równoległe operacje na stanie. Sekret JWT dla testów jest generowany wyłącznie w testach; nie trzeba ustawiać własnego `JWT_SECRET`. Poczta w testach jest zastąpiona kontrolowanym nadajnikiem.
+Testy HTTP używają osobnego PostgreSQL 17 uruchamianego przez Testcontainers. Wymagają działającego Dockera i nie dotykają lokalnej bazy sklepu. Sprawdzają migracje, JWT (w tym błędne i wygasłe tokeny), brak sesji, uprawnienia, CORS, konta, katalog, magazyn, koszyki, zamówienia, płatności i realizację. Obejmują także ponowienia, rollback i równoległe operacje na stanie. Sekrety są generowane wyłącznie w testach; nie trzeba ustawiać własnego `JWT_SECRET` ani `TRACKING_SECRET`.
+
+Większość testów używa profilu `test` i kontrolowanego nadajnika poczty, m.in. do wymuszania awarii SMTP. `MvpJourneyIntegrationTests` uruchamia pełną aplikację w profilu `external` z izolowanymi PostgreSQL i Mailpit, wykonuje zakupy klienta/gościa przez HTTP i sprawdza prawdziwą wysyłkę SMTP. Uruchamia aplikację ponownie na tej samej bazie, aby sprawdzić migracje, trwałość danych, odzyskanie linku i wykonanie zaległych zadań. [Wynik końcowej weryfikacji MVP](docs/mvp-verification.md).
 
 Wynik budowania: `backend/target/demo-0.0.1-SNAPSHOT.jar`. Przy uruchamianiu JAR zapewnij działającą bazę i użyj profilu `external` z właściwymi zmiennymi połączenia.
 

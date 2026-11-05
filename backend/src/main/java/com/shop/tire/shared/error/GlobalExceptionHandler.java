@@ -36,6 +36,9 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             HttpHeaders headers, HttpStatusCode status, WebRequest request) {
         var problem = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, "Nieprawidłowy parametr żądania.");
         problem.setProperty("code", "INVALID_PARAMETER");
+        if (ex instanceof org.springframework.web.method.annotation.MethodArgumentTypeMismatchException parameter) {
+            problem.setProperty("errors",List.of(new FieldError(parameter.getName(),"Nieprawidłowy typ parametru.")));
+        }
         return handleExceptionInternal(ex, problem, headers, status, request);
     }
 
@@ -45,7 +48,37 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             HttpHeaders headers, HttpStatusCode status, WebRequest request) {
         var problem = ProblemDetail.forStatusAndDetail(status, "Nieprawidłowe parametry żądania.");
         problem.setProperty("code", "VALIDATION_FAILED");
+        problem.setProperty("errors",ex.getParameterValidationResults().stream().map(result -> {
+            String name=result.getMethodParameter().getParameterName();
+            return new FieldError(name==null?"parameter":name,"Nieprawidłowa wartość parametru.");
+        }).toList());
         return handleExceptionInternal(ex, problem, headers, status, request);
+    }
+
+    @Override
+    protected ResponseEntity<Object> createResponseEntity(Object body, HttpHeaders headers,
+            HttpStatusCode status, WebRequest request) {
+        var problem=body instanceof ProblemDetail detail?detail:ProblemDetail.forStatus(status);
+        if (problem.getProperties()==null || !problem.getProperties().containsKey("code")) {
+            String code=switch(status.value()) {
+                case 400 -> "INVALID_REQUEST";
+                case 404 -> "RESOURCE_NOT_FOUND";
+                case 405 -> "METHOD_NOT_ALLOWED";
+                case 406 -> "NOT_ACCEPTABLE";
+                case 415 -> "UNSUPPORTED_MEDIA_TYPE";
+                default -> status.is5xxServerError()?"INTERNAL_ERROR":"HTTP_ERROR";
+            };
+            problem.setProperty("code",code);
+            problem.setDetail(switch(status.value()) {
+                case 400 -> "Nieprawidłowe żądanie.";
+                case 404 -> "Nie znaleziono zasobu.";
+                case 405 -> "Metoda HTTP nie jest obsługiwana dla tego zasobu.";
+                case 406 -> "Żądany format odpowiedzi nie jest obsługiwany.";
+                case 415 -> "Nieobsługiwany format danych żądania.";
+                default -> "Nie udało się obsłużyć żądania.";
+            });
+        }
+        return super.createResponseEntity(problem,headers,status,request);
     }
 
     @ExceptionHandler(ApiException.class)

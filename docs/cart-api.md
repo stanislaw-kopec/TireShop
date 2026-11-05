@@ -46,4 +46,4 @@ Token gościa to 32 losowe bajty zapisane jako Base64URL (43 znaki), w bazie prz
 
 Swagger ma dwa pola Authorize: `bearerAuth` dla JWT oraz `guestCartToken` dla tokenu koszyka. Scalanie wymaga obu. Wygasły JWT należy usunąć z Authorize także podczas testowania publicznych operacji gościa.
 
-Migracja V5 dodaje `shopping_cart` oraz `cart_item`. Checkout i 15-minutowe rezerwacje są w V6: [API zamówień](order-api.md). Gotowość koszyka jest podpowiedzią; złożenie zamówienia ponownie sprawdza ceny i dostępność. Płatności pozostają kolejnym etapem.
+Migracja V5 dodaje `shopping_cart` oraz `cart_item`. Checkout i 15-minutowe rezerwacje są w V6: [API zamówień](order-api.md). Gotowość koszyka jest podpowiedzią; złożenie zamówienia ponownie sprawdza ceny i dostępność. V7 udostępnia [symulator płatności](payment-api.md).

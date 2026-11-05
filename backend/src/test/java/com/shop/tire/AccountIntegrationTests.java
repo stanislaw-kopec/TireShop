@@ -354,6 +354,26 @@ class AccountIntegrationTests {
         }
     }
 
+    @Test
+    void frameworkErrorsHaveStableCodesAndParameterValidationDetails() throws Exception {
+        try (var client=new Client()) {
+            client.login(fixture("ADMIN"),PASSWORD);
+            assertProblem(client.get("/api/account/unknown"),404,"RESOURCE_NOT_FOUND");
+            assertProblem(client.raw("PATCH","/api/account/me",Map.of()),405,"METHOD_NOT_ALLOWED");
+            assertProblem(client.get("/api/admin/accounts"),400,"INVALID_REQUEST");
+            var invalid=client.get("/api/admin/accounts?email=not-an-email");
+            assertProblem(invalid,400,"VALIDATION_FAILED");
+            assertThat(body(invalid).path("errors").isArray()).isTrue();
+            assertThat(body(invalid).path("errors").isEmpty()).isFalse();
+            assertThat(invalid.body()).doesNotContain("not-an-email");
+            var unsupported=HttpRequest.newBuilder(URI.create("http://localhost:"+port+"/api/auth/register"))
+                    .header("Content-Type","text/plain").POST(HttpRequest.BodyPublishers.ofString("sensitive input")).build();
+            assertProblem(client.http.send(unsupported,HttpResponse.BodyHandlers.ofString()),415,"UNSUPPORTED_MEDIA_TYPE");
+            client.token=null;
+            assertProblem(client.get("/api/account/unknown"),401,"AUTHENTICATION_REQUIRED");
+        }
+    }
+
     private JwtClaimsSet.Builder claims(UUID accountId) {
         var now = Instant.now();
         return JwtClaimsSet.builder().issuer("tireshop").audience(List.of("tireshop-api"))
