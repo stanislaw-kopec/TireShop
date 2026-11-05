@@ -2,8 +2,7 @@ package com.shop.tire.cart;
 
 import com.shop.tire.catalog.CatalogService;
 import com.shop.tire.shared.error.DomainException;
-import java.nio.charset.StandardCharsets;
-import java.security.*;
+import com.shop.tire.shared.security.OpaqueTokens;
 import java.time.*;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
@@ -15,18 +14,16 @@ import static com.shop.tire.shared.error.DomainException.Kind.*;
 @Service
 @Transactional
 public class CartService {
+    public record CheckoutCart(UUID id, CartResponse contents) {}
     public record GuestCreated(String token, Instant expiresAt, CartResponse cart) {}
     private final CartRepository carts;
     private final CatalogService catalog;
     private final Clock clock;
-    private final SecureRandom random = new SecureRandom();
     public CartService(CartRepository carts, CatalogService catalog, Clock clock) {
         this.carts = carts; this.catalog = catalog; this.clock = clock;
     }
     public GuestCreated createGuest() {
-        byte[] bytes = new byte[32];
-        random.nextBytes(bytes);
-        String token = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+        String token = OpaqueTokens.create();
         Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         Instant expires = now.plus(Duration.ofHours(24));
         carts.createGuest(UUID.randomUUID(), hash(token), now, expires);
@@ -35,6 +32,25 @@ public class CartService {
     public CartResponse guest(String token) { return view(carts.items(activeGuest(token).id())); }
     public CartResponse guestPut(String token, UUID product, int quantity) { return put(activeGuest(token).id(), product, quantity); }
     public CartResponse guestDelete(String token, UUID product) { return delete(activeGuest(token).id(), product); }
+
+    public CheckoutCart guestCheckout(String token) {
+        var cart = activeGuest(token);
+        return new CheckoutCart(cart.id(), view(carts.items(cart.id())));
+    }
+    @PreAuthorize("hasRole('CUSTOMER') and #accountId == authentication.principal.accountId()")
+    public CheckoutCart accountCheckout(UUID accountId) {
+        UUID id = carts.account(accountId, false, clock.instant()).orElseThrow(() -> conflict("EMPTY_CART", "Koszyk jest pusty."));
+        return new CheckoutCart(id, view(carts.items(id)));
+    }
+    // Internal operations: order uses the cart ID from its authenticated, server-issued quote only.
+    @org.springframework.transaction.annotation.Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public CartResponse checkoutContents(UUID cartId) {
+        var cart = carts.lockForCheckout(cartId).orElseThrow(CartService::notFound);
+        if (cart.mergedAccountId() != null || (cart.expiresAt() != null && !clock.instant().isBefore(cart.expiresAt()))) throw notFound();
+        return view(carts.items(cartId));
+    }
+    @org.springframework.transaction.annotation.Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void completeCheckout(UUID cartId) { carts.clear(cartId); }
 
     @PreAuthorize("hasRole('CUSTOMER') and #accountId == authentication.principal.accountId()")
     public CartResponse account(UUID accountId) {
@@ -98,14 +114,13 @@ public class CartService {
         return cart;
     }
     private CartRepository.Cart guestRecord(String token) {
-        if (token == null || !token.matches("[A-Za-z0-9_-]{43}")) throw notFound();
+        if (!OpaqueTokens.valid(token)) throw notFound();
         var cart = carts.guest(hash(token)).orElseThrow(CartService::notFound);
         if (!clock.instant().isBefore(cart.expiresAt())) throw notFound();
         return cart;
     }
     private static String hash(String token) {
-        try { return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(token.getBytes(StandardCharsets.UTF_8))); }
-        catch (NoSuchAlgorithmException ex) { throw new IllegalStateException("SHA-256 unavailable", ex); }
+        return OpaqueTokens.hash(token);
     }
     private static DomainException notFound() { return new DomainException(NOT_FOUND, "CART_NOT_FOUND", "Koszyk jest niedostępny."); }
     private static DomainException conflict(String code, String message) { return new DomainException(CONFLICT, code, message); }

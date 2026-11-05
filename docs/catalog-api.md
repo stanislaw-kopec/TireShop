@@ -111,7 +111,7 @@ POST `/api/employee/inventory/{productId}/movements`:
 
 Wynik operacji i element historii zawierają `operationId`, `productId`, `actorAccountId`, `type`, `quantityDelta`, `reason`, `onHandAfter`, `reservedAfter`, `createdAt`. Liczniki w tym wyniku opisują moment wykonania operacji, również przy jej późniejszym ponowieniu. Aktualny stan odczytaj z GET `/api/employee/inventory/{productId}`: `productId`, `onHand`, `reserved`, `available`.
 
-Aktualizacja stanu i wpis historii korzystają ze wspólnej transakcji oraz blokady wiersza magazynu. Błąd zapisu wycofuje całość. Identyfikator operacji jest kluczem głównym wpisu historii, co zabezpiecza także równoległe użycie tego samego ID dla różnych produktów. Korekty chronią `reserved`, ale w tym etapie nie ma jeszcze operacji tworzących rezerwacje ani wydań po płatności.
+Aktualizacja stanu i wpis historii korzystają ze wspólnej transakcji oraz blokady wiersza magazynu. Błąd zapisu wycofuje całość. Identyfikator operacji jest kluczem głównym wpisu historii, co zabezpiecza także równoległe użycie tego samego ID dla różnych produktów. Korekty chronią `reserved`; rezerwacje tworzy etap zamówień V6, natomiast wydania po płatności pozostają do implementacji.
 
 ## Błędy i granice etapu
 
@@ -123,4 +123,4 @@ Format `application/problem+json`, zgodny z API kont. Nieznane pola body są odr
 - 404 `PRODUCT_NOT_FOUND`: brak produktu lub brak jego publicznej dostępności.
 - 409 `PRICE_REQUIRED`, `INSUFFICIENT_STOCK`, `STOCK_LIMIT_EXCEEDED`, `OPERATION_ID_REUSED` lub `DATA_CONFLICT`: niedozwolona zmiana albo konflikt zapisu. Równoczesne użycie jednego operationId dla różnych produktów może zwrócić ogólny `DATA_CONFLICT`; żadna z operacji nie nadpisuje wcześniejszej historii.
 
-Migracja V4 dodaje `manufacturer`, `tire_product`, `inventory`, `inventory_change`. Nie zmienia migracji kont ani danych istniejącej bazy. Koszyk jest zaimplementowany w V5 i opisany w [API koszyka](cart-api.md). Zamówienia, rezerwacje czasowe, płatności i śledzenie zamówień pozostają kolejnymi etapami.
+Migracja V4 dodaje `manufacturer`, `tire_product`, `inventory`, `inventory_change`. Nie zmienia migracji kont ani danych istniejącej bazy. Koszyk jest zaimplementowany w V5 i opisany w [API koszyka](cart-api.md). Zamówienia i rezerwacje są w V6: [API zamówień](order-api.md). Płatności i śledzenie przesyłki pozostają kolejnymi etapami.

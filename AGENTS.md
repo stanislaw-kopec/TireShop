@@ -36,6 +36,10 @@ Logowanie jest dostępne podczas przeglądania katalogu, w koszyku i przed zło�
 
 ### Koszyk i zakup
 
+- Decyzja z 5 listopada 2026 (etap zamówień): zmiana ceny lub zawartości po podsumowaniu wymaga pobrania i potwierdzenia nowego podsumowania. Klient może anulować wyłącznie nieopłacone zamówienie; zwroty po zapłacie pozostają poza zakresem.
+- Backend wydaje podsumowanie ważne 15 minut, niezależne od rezerwacji. Utworzenie zamówienia potwierdza jego ID i unikalny checkoutKey; podsumowanie ma najwyżej jedno zamówienie. Identyczne ponowienie zwraca to samo zamówienie, bez przedłużenia terminu lub kolejnej rezerwacji.
+- Gość otrzymuje w podsumowaniu osobny token zakupu, ważny 24 godziny i przesyłany w X-Purchase-Token. Token koszyka nie daje dostępu do zamówienia. Przyszły link śledzenia po zapłacie jest oddzielnym mechanizmem. Adres podany przy zakupie nie zmienia profilu.
+
 - Decyzja z 5 listopada 2026: gość używa osobnego losowego tokenu koszyka w nagłówku `X-Cart-Token`, bez cookie. Przyszły Angular przechowuje go w `sessionStorage` do zamknięcia karty. Backend przechowuje skrót tokenu i ogranicza jego ważność do 24 godzin od utworzenia; zamknięcie karty nie jest zdarzeniem wiarygodnie wykrywalnym przez backend.
 - Jeśli podczas scalania brakuje towaru lub produkt jest niedostępny, zwróć konflikt i zachowaj oba koszyki bez zmian. Nie zmniejszaj samoczynnie ilości. Po sukcesie token gościa nie daje dostępu do koszyka klienta; pozwala jedynie bezpiecznie ponowić scalanie z tym samym zalogowanym kontem do pierwotnego terminu ważności.
 
@@ -76,7 +80,7 @@ Logowanie jest dostępne podczas przeglądania katalogu, w koszyku i przed zło�
 
 - Przebieg: `PENDING_PAYMENT → PAID → PROCESSING → SHIPPED → DELIVERED`.
 - Status `PAID` wynika z potwierdzonej płatności. Pracownik obsługuje kolejne etapy i ręcznie aktualizuje status doręczenia.
-- Status `CANCELLED` obejmuje wygaśnięcie nieopłaconego zamówienia. Pozostałe reguły anulowania pozostają do ustalenia.
+- Status `CANCELLED` obejmuje wygaśnięcie nieopłaconego zamówienia oraz anulowanie go przez uprawnionego klienta/gościa. Anulowanie po zapłacie wymaga procesu zwrotów, poza zakresem MVP.
 - Pracownik przypisuje numer przesyłki. Śledzenie w MVP oznacza aktualny status i numer przesyłki, bez integracji z API kuriera.
 
 ### Dostęp gościa
@@ -215,10 +219,8 @@ Logowanie jest dostępne podczas przeglądania katalogu, w koszyku i przed zło�
 
 ## Propozycje do omówienia — nie są jeszcze zatwierdzonym zakresem
 
-1. **Zmiana ceny w koszyku:** proponowane jest potwierdzenie aktualnej kwoty przez klienta przed utworzeniem zamówienia, jeżeli cena uległa zmianie.
-2. **Anulowanie zamówienia:** proponowane MVP pozwala klientowi anulować tylko nieopłacone zamówienie. Anulowanie opłaconych zamówień wymaga procesu zwrotu i pozostaje poza obecnym zakresem.
-3. **Koszyk gościa:** mechanizm tokenu został ustalony 5 listopada 2026 i opisany w wymaganiach. Dłuższe przechowywanie między sesjami przeglądarki pozostaje poza bieżącym zakresem.
-4. **Adres wpisany przy zakupie:** proponowane jest osobne, świadome zapisanie go na koncie. Zmiana adresu dla pojedynczego zamówienia nie powinna po cichu nadpisywać adresu profilu.
+1. **Koszyk gościa:** mechanizm tokenu został ustalony 5 listopada 2026 i opisany w wymaganiach. Dłuższe przechowywanie między sesjami przeglądarki pozostaje poza bieżącym zakresem.
+2. **Adres wpisany przy zakupie:** dodatkowa opcja świadomego zapisania go także na koncie może powstać w przyszłym frontendzie. Obecny checkout nie zmienia profilu.
 
 Wstępny projekt relacji i uzasadnienia znajdują się w `docs/backend-design.md`. Pozostałe propozycje tego dokumentu nie stają się wymaganiami bez ich uzgodnienia.
 
@@ -230,7 +232,9 @@ Drugi etap: publiczny katalog z filtrami, paginacją i sortowaniem po cenie; odc
 
 Trzeci etap: koszyk CUSTOMER i gościa, aktualne ceny, podsumowanie dostawy oraz atomowe, odporne na ponowienia scalanie. V5 dodaje `shopping_cart` i `cart_item`; domena cart korzysta z repozytorium JDBC. Maksymalnie 100 różnych produktów, PUT ustawia ilość docelową. Kontrakt: `docs/cart-api.md`. Frontend ma wywołać scalanie po logowaniu; samo logowanie nie konsumuje koszyka gościa.
 
-Zamówienia, tworzenie i wygaszanie rezerwacji, wydania po zapłacie, płatności i śledzenie pozostają do implementacji. `reserved` jest już chronione ograniczeniem bazy i regułą korekt, ale nie ma jeszcze endpointu tworzącego rezerwacje. Nowe domeny używają błędów niezależnych od HTTP; porządkowanie istniejącego `ApiException` oraz request ID są nadal osobnymi zadaniami.
+Czwarty etap: podsumowanie zakupu, zamówienie z kopią danych, rezerwacja na 15 minut, historia/szczegóły klienta, dostęp gościa przez token zakupu, anulowanie nieopłaconych i zadanie zwalniające wygasłe rezerwacje. V6 dodaje `checkout_quote`, `customer_order`, `order_item`. Zamówienie i rezerwacja wszystkich pozycji powstają atomowo; koszyk jest czyszczony dopiero w tej samej udanej transakcji. Kontrakt: `docs/order-api.md`.
+
+Płatności, wydania po zapłacie, linki śledzenia i realizacja pracownicza pozostają do implementacji. Przyszła płatność musi blokować ten sam wiersz zamówienia co anulowanie/wygaśnięcie, sprawdzać termin także bez działania zadania w tle i nie może przyjąć sukcesu dokładnie w chwili wygaśnięcia. Nowe domeny używają błędów niezależnych od HTTP; porządkowanie istniejącego `ApiException` oraz request ID są nadal osobnymi zadaniami.
 
 ## Poza zakresem MVP
 

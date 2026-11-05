@@ -38,6 +38,14 @@ public class CatalogService {
     @Transactional(readOnly = true)
     public java.util.List<TireResponse> cartProducts(java.util.Collection<UUID> ids) { return queries.findAll(ids); }
 
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void lockForCheckout(java.util.Collection<UUID> ids) {
+        // Use the same order in every multi-product operation; UUID string order matches PostgreSQL.
+        // SHARE freezes prices without blocking FK checks from concurrent inventory audit inserts.
+        ids.stream().sorted(java.util.Comparator.comparing(UUID::toString))
+                .forEach(id -> tires.findForCheckoutById(id).orElseThrow(CatalogService::notFound));
+    }
+
     @Transactional(readOnly = true)
     public PageResponse<ManufacturerResponse> manufacturers(int page, int size) { return queries.manufacturers(page, size); }
 

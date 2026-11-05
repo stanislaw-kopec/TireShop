@@ -39,6 +39,13 @@ class CartRepository {
                 cartId, productId, quantity);
     }
     void delete(UUID cartId, UUID productId) { jdbc.update("DELETE FROM cart_item WHERE cart_id=? AND product_id=?", cartId, productId); }
+    Optional<Cart> lockForCheckout(UUID cartId) {
+        return jdbc.query("SELECT id,expires_at,merged_account_id FROM shopping_cart WHERE id=? FOR UPDATE",
+                (rs, row) -> new Cart(rs.getObject("id", UUID.class),
+                        rs.getTimestamp("expires_at") == null ? null : rs.getTimestamp("expires_at").toInstant(),
+                        rs.getObject("merged_account_id", UUID.class)), cartId).stream().findFirst();
+    }
+    void clear(UUID cartId) { jdbc.update("DELETE FROM cart_item WHERE cart_id=?", cartId); }
     void merged(UUID guestId, UUID accountId) {
         jdbc.update("DELETE FROM cart_item WHERE cart_id=?", guestId);
         jdbc.update("UPDATE shopping_cart SET merged_account_id=? WHERE id=?", accountId, guestId);

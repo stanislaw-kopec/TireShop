@@ -37,6 +37,7 @@ class CatalogInventoryIntegrationTests {
 
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry registry) {
+        registry.add("app.order.expiry-job-enabled", () -> false);
         registry.add("app.jwt.secret", () -> JWT_SECRET);
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
         registry.add("spring.datasource.username", POSTGRES::getUsername);
@@ -47,6 +48,7 @@ class CatalogInventoryIntegrationTests {
     @Autowired ObjectMapper json;
     @Autowired JdbcTemplate jdbc;
     @Autowired PasswordEncoder encoder;
+    @Autowired com.shop.tire.order.OrderService orders;
     @MockitoBean JavaMailSender mail;
     private HttpClient http;
     private String employee;
@@ -507,6 +509,202 @@ class CatalogInventoryIntegrationTests {
     }
     private HttpResponse<String> mergeCall(String jwt, String guest) throws Exception {
         return http.send(mergeRequest(jwt, guest), HttpResponse.BodyHandlers.ofString());
+    }
+
+    @Test
+    void checkoutCreatesImmutableOrderAndReservationOnlyAfterConfirmation() throws Exception {
+        String a = offer(details(brand(), "Order A"), "100.10", 10);
+        String b = offer(details(brand(), "Order B"), "50.20", 10);
+        expect(call(customer,"PUT","/api/cart/items/"+a,Map.of("quantity",3)),200);
+        expect(call(customer,"PUT","/api/cart/items/"+b,Map.of("quantity",1)),200);
+        expect(call(customer,"PUT","/api/account/me/address",deliveryAddress()),200);
+        var input = new HashMap<String,Object>();
+        input.put("phone","123456789");
+        var quote = expect(call(customer,"POST","/api/orders/preview",input),200);
+        assertThat(get(employee,stock(a)).get("reserved").asInt()).isZero();
+        var checkout = Map.of("quoteId",quote.get("id").asText(),"checkoutKey",UUID.randomUUID());
+        var created = call(customer,"POST","/api/orders",checkout);
+        var order = expect(created,201);
+        String id = order.get("id").asText();
+        assertThat(created.headers().firstValue("location")).contains("/api/orders/"+id);
+        assertThat(order.get("status").asText()).isEqualTo("PENDING_PAYMENT");
+        assertThat(order.at("/snapshot/totalGross").decimalValue()).isEqualByComparingTo("350.50");
+        assertThat(order.at("/snapshot/shippingGross").decimalValue()).isZero();
+        assertThat(java.time.Duration.between(java.time.Instant.parse(order.get("createdAt").asText()),java.time.Instant.parse(order.get("reservationExpiresAt").asText())))
+                .isEqualTo(java.time.Duration.ofMinutes(15));
+        assertThat(get(employee,stock(a)).get("onHand").asInt()).isEqualTo(10);
+        assertThat(get(employee,stock(a)).get("reserved").asInt()).isEqualTo(3);
+        assertThat(get(customer,"/api/cart").get("items").isEmpty()).isTrue();
+        assertThat(expect(call(customer,"POST","/api/orders",checkout),201)).isEqualTo(order);
+        setPrice(a,"999.00");
+        var address = new HashMap<>(deliveryAddress()); address.put("city","Gdańsk");
+        expect(call(customer,"PUT","/api/account/me/address",address),200);
+        assertThat(get(customer,"/api/orders/"+id)).isEqualTo(order);
+        assertThat(get(customer,"/api/orders?size=1").get("totalElements").asLong()).isEqualTo(1);
+        assertThat(jdbc.queryForObject("select count(*) from inventory_change where product_id=?",Integer.class,UUID.fromString(a))).isEqualTo(1);
+    }
+
+    @Test
+    void changedPricesOrCartRequireFreshConfirmationWithoutPartialReservation() throws Exception {
+        String id = offer(details(brand(),"Price confirmation"),"10.00",5);
+        expect(call(customer,"PUT","/api/cart/items/"+id,Map.of("quantity",3)),200);
+        var quote = preview(customer);
+        assertThat(quote.at("/snapshot/shippingGross").decimalValue()).isEqualByComparingTo("20.00");
+        setPrice(id,"11.00");
+        var key = UUID.randomUUID();
+        problem(call(customer,"POST","/api/orders",Map.of("quoteId",quote.get("id").asText(),"checkoutKey",key)),409,"CHECKOUT_CHANGED");
+        assertThat(get(employee,stock(id)).get("reserved").asInt()).isZero();
+        quote = preview(customer);
+        expect(call(customer,"PUT","/api/cart/items/"+id,Map.of("quantity",2)),200);
+        problem(call(customer,"POST","/api/orders",Map.of("quoteId",quote.get("id").asText(),"checkoutKey",key)),409,"CHECKOUT_CHANGED");
+        var fresh = preview(customer);
+        expect(call(customer,"POST","/api/orders",Map.of("quoteId",fresh.get("id").asText(),"checkoutKey",key)),201);
+        assertThat(get(employee,stock(id)).get("reserved").asInt()).isEqualTo(2);
+    }
+
+    @Test
+    void concurrentBuyersCannotReserveMoreThanAvailableAndLoserKeepsCart() throws Exception {
+        String a = offer(details(brand(),"Last order A"),"10.00",2);
+        String b = offer(details(brand(),"Last order B"),"10.00",1);
+        String other = loginFixture("CUSTOMER");
+        for (String token : List.of(customer,other)) {
+            expect(call(token,"PUT","/api/cart/items/"+a,Map.of("quantity",1)),200);
+            expect(call(token,"PUT","/api/cart/items/"+b,Map.of("quantity",1)),200);
+        }
+        var first = preview(customer); var second = preview(other);
+        var responses = parallel(List.of(request(customer,"POST","/api/orders",Map.of("quoteId",first.get("id").asText(),"checkoutKey",UUID.randomUUID())),
+                request(other,"POST","/api/orders",Map.of("quoteId",second.get("id").asText(),"checkoutKey",UUID.randomUUID()))));
+        assertThat(responses.stream().map(HttpResponse::statusCode).toList()).containsExactlyInAnyOrder(201,409);
+        assertThat(get(employee,stock(a)).get("reserved").asInt()).isEqualTo(1);
+        assertThat(get(employee,stock(b)).get("reserved").asInt()).isEqualTo(1);
+        String loser = responses.getFirst().statusCode()==409 ? customer : other;
+        assertThat(get(loser,"/api/cart").get("totalQuantity").asLong()).isEqualTo(2);
+    }
+
+    @Test
+    void parallelCheckoutRetryCreatesOnlyOneOrderAndRejectsDifferentKeyOrQuote() throws Exception {
+        String id = offer(details(brand(),"Retry checkout"),"10.00",4);
+        expect(call(customer,"PUT","/api/cart/items/"+id,Map.of("quantity",2)),200);
+        var quote = preview(customer); var second = preview(customer);
+        UUID key = UUID.randomUUID();
+        var input = Map.of("quoteId",quote.get("id").asText(),"checkoutKey",key);
+        var responses = parallel(List.of(request(customer,"POST","/api/orders",input),request(customer,"POST","/api/orders",input)));
+        assertThat(expect(responses.get(0),201)).isEqualTo(expect(responses.get(1),201));
+        problem(call(customer,"POST","/api/orders",Map.of("quoteId",quote.get("id").asText(),"checkoutKey",UUID.randomUUID())),409,"QUOTE_ALREADY_USED");
+        problem(call(customer,"POST","/api/orders",Map.of("quoteId",second.get("id").asText(),"checkoutKey",key)),409,"CHECKOUT_KEY_REUSED");
+        assertThat(get(employee,stock(id)).get("reserved").asInt()).isEqualTo(2);
+    }
+
+    @Test
+    void guestPurchaseContextSurvivesLoginAndCartMergeWithoutChangingOrderOwner() throws Exception {
+        String id = offer(details(brand(),"Guest order"),"10.00",8);
+        String guest = newGuest();
+        expect(guestCall(guest,"PUT","/items/"+id,Map.of("quantity",2)),200);
+        var quoteResponse = headerCall(null,"X-Cart-Token",guest,"POST","/api/guest/orders/preview",previewInput());
+        var quote = expect(quoteResponse,200);
+        assertThat(quoteResponse.headers().firstValue("cache-control").orElse("")).contains("no-store");
+        String purchase = quote.get("purchaseToken").asText();
+        assertThat(purchase).hasSize(43).isNotEqualTo(guest);
+        var input = Map.of("quoteId",quote.get("id").asText(),"checkoutKey",UUID.randomUUID());
+        var order = expect(headerCall(null,"X-Purchase-Token",purchase,"POST","/api/guest/orders",input),201);
+        String orderId = order.get("id").asText();
+        problem(headerCall(null,"X-Purchase-Token",guest,"GET","/api/guest/orders/"+orderId,null),404,"ORDER_NOT_FOUND");
+        problem(call(customer,"GET","/api/orders/"+orderId,null),404,"ORDER_NOT_FOUND");
+        expect(mergeCall(customer,guest),200);
+        assertThat(expect(headerCall(customer,"X-Purchase-Token",purchase,"GET","/api/guest/orders/"+orderId,null),200)).isEqualTo(order);
+        assertThat(expect(headerCall(null,"X-Purchase-Token",purchase,"POST","/api/guest/orders",input),201)).isEqualTo(order);
+        assertThat(jdbc.queryForObject("select guest_token_hash from customer_order where id=?",String.class,UUID.fromString(orderId))).hasSize(64).isNotEqualTo(purchase);
+        assertThat(order.toString()).doesNotContain(purchase,"guestHash");
+        expect(headerCall(null,"X-Purchase-Token",purchase,"POST","/api/guest/orders/"+orderId+"/cancellation",null),200);
+        assertThat(get(employee,stock(id)).get("reserved").asInt()).isZero();
+    }
+
+    @Test
+    void cancellationsAndExpiryReleaseExactlyOnceAndNeverChangePhysicalStock() throws Exception {
+        String id = offer(details(brand(),"Expiry"),"10.00",8);
+        var order = createCustomerOrder(id,3);
+        String orderId = order.get("id").asText();
+        var requests = List.of(request(customer,"POST","/api/orders/"+orderId+"/cancellation",null),request(customer,"POST","/api/orders/"+orderId+"/cancellation",null));
+        for (var response : parallel(requests)) assertThat(expect(response,200).get("status").asText()).isEqualTo("CANCELLED");
+        assertThat(get(employee,stock(id)).get("reserved").asInt()).isZero();
+        assertThat(get(employee,stock(id)).get("onHand").asInt()).isEqualTo(8);
+        var expired = createCustomerOrder(id,4);
+        UUID expiredId = UUID.fromString(expired.get("id").asText());
+        jdbc.update("update customer_order set created_at=now()-interval '16 minutes',reservation_expires_at=now()-interval '1 minute' where id=?",expiredId);
+        assertThat(get(customer,"/api/orders/"+expiredId).get("status").asText()).isEqualTo("CANCELLED");
+        assertThat(jdbc.queryForObject("select status from customer_order where id=?",String.class,expiredId)).isEqualTo("PENDING_PAYMENT");
+        var expiry = CompletableFuture.runAsync(()->orders.expire(expiredId));
+        expect(call(customer,"POST","/api/orders/"+expiredId+"/cancellation",null),200);
+        expiry.get(20,TimeUnit.SECONDS);
+        orders.expire(expiredId);
+        assertThat(get(employee,stock(id)).get("reserved").asInt()).isZero();
+        assertThat(get(customer,"/api/orders/"+expiredId).get("cancellationReason").asText()).isEqualTo("EXPIRED");
+    }
+
+    @Test
+    void privateOrdersRejectOtherOwnersStaffInvalidInputAndPaidCancellation() throws Exception {
+        String id = offer(details(brand(),"Order privacy"),"10.00",8);
+        var order = createCustomerOrder(id,1);
+        String path = "/api/orders/"+order.get("id").asText();
+        String other = loginFixture("CUSTOMER");
+        problem(call(other,"GET",path,null),404,"ORDER_NOT_FOUND");
+        problem(call(other,"POST",path+"/cancellation",null),404,"ORDER_NOT_FOUND");
+        problem(call(null,"GET",path,null),401,"AUTHENTICATION_REQUIRED");
+        problem(call(employee,"GET",path,null),403,"ACCESS_DENIED");
+        problem(call(admin,"POST",path+"/cancellation",null),403,"ACCESS_DENIED");
+        problem(call(customer,"GET","/api/orders?size=101",null),400,"VALIDATION_FAILED");
+        problem(call(customer,"POST","/api/orders/preview",previewInput()),409,"EMPTY_CART");
+        var forged = new HashMap<>(previewInput()); forged.put("totalGross",1);
+        problem(call(customer,"POST","/api/orders/preview",forged),400,"INVALID_REQUEST");
+        problem(call(customer,"POST","/api/orders",Map.of("quoteId","bad","checkoutKey",UUID.randomUUID())),400,"INVALID_REQUEST");
+        jdbc.update("update customer_order set status='PAID' where id=?",UUID.fromString(order.get("id").asText()));
+        problem(call(customer,"POST",path+"/cancellation",null),409,"ORDER_NOT_CANCELLABLE");
+    }
+
+    @Test
+    void expiredQuoteDoesNotCreateAnOrderAndGuestAddressIsRequired() throws Exception {
+        String id = offer(details(brand(),"Old quote"),"10.00",5);
+        expect(call(customer,"PUT","/api/cart/items/"+id,Map.of("quantity",2)),200);
+        var quote = preview(customer);
+        UUID quoteId = UUID.fromString(quote.get("id").asText());
+        jdbc.update("update checkout_quote set expires_at=now()-interval '1 second' where id=?",quoteId);
+        problem(call(customer,"POST","/api/orders",Map.of("quoteId",quoteId,"checkoutKey",UUID.randomUUID())),409,"QUOTE_EXPIRED");
+        assertThat(get(employee,stock(id)).get("reserved").asInt()).isZero();
+        String guest = newGuest();
+        problem(headerCall(null,"X-Cart-Token",guest,"POST","/api/guest/orders/preview",Map.of("phone","123456789")),400,"DELIVERY_REQUIRED");
+    }
+
+    @Test
+    void orderInsertFailureRollsBackAlreadyFlushedReservationAndPreservesCart() throws Exception {
+        String product = offer(details(brand(),"Rollback after reservation"),"20.00",5);
+        expect(call(customer,"PUT","/api/cart/items/"+product,Map.of("quantity",2)),200);
+        var quote = preview(customer);
+        UUID key = UUID.randomUUID();
+        // Fault injection in this isolated PostgreSQL database, limited to this generated key.
+        jdbc.execute("ALTER TABLE customer_order ADD CONSTRAINT test_checkout_failure CHECK (checkout_key <> '"+key+"'::uuid)");
+        try {
+            problem(call(customer,"POST","/api/orders",Map.of("quoteId",quote.get("id").asText(),"checkoutKey",key)),409,"DATA_CONFLICT");
+            assertThat(get(employee,stock(product)).get("reserved").asInt()).isZero();
+            assertThat(get(customer,"/api/cart").get("totalQuantity").asLong()).isEqualTo(2);
+            assertThat(jdbc.queryForObject("select count(*) from customer_order where checkout_key=?",Integer.class,key)).isZero();
+        } finally {
+            jdbc.execute("ALTER TABLE customer_order DROP CONSTRAINT test_checkout_failure");
+        }
+        expect(call(customer,"POST","/api/orders",Map.of("quoteId",quote.get("id").asText(),"checkoutKey",key)),201);
+        assertThat(get(employee,stock(product)).get("reserved").asInt()).isEqualTo(2);
+    }
+
+    private Map<String,Object> deliveryAddress() {
+        return Map.of("recipientName","Test Customer","street","Testowa","buildingNumber","1","postalCode","00-001","city","Warszawa","countryCode","PL");
+    }
+    private Map<String,Object> previewInput() { return Map.of("email","order@example.test","phone","123456789","address",deliveryAddress()); }
+    private JsonNode preview(String token) throws Exception { return expect(call(token,"POST","/api/orders/preview",previewInput()),200); }
+    private JsonNode createCustomerOrder(String product, int quantity) throws Exception {
+        expect(call(customer,"PUT","/api/cart/items/"+product,Map.of("quantity",quantity)),200);
+        return expect(call(customer,"POST","/api/orders",Map.of("quoteId",preview(customer).get("id").asText(),"checkoutKey",UUID.randomUUID())),201);
+    }
+    private HttpResponse<String> headerCall(String jwt, String header, String token, String method, String path, Object body) throws Exception {
+        return http.send(HttpRequest.newBuilder(request(jwt,method,path,body),(name,value)->true).header(header,token).build(),HttpResponse.BodyHandlers.ofString());
     }
 
     private String loginFixture(String role) throws Exception {

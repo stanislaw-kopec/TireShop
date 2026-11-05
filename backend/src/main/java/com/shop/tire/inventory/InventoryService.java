@@ -30,6 +30,32 @@ public class InventoryService {
         inventory.saveAndFlush(new Inventory(productId, clock.instant()));
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void reserve(java.util.Map<UUID, Integer> quantities) {
+        for (UUID id : quantities.keySet().stream().sorted(java.util.Comparator.comparing(UUID::toString)).toList()) {
+            var stock = inventory.findLockedByProductId(id).orElseThrow(InventoryService::notFound);
+            int quantity = quantities.get(id);
+            if (quantity <= 0 || stock.onHand - stock.reserved < quantity) {
+                throw new DomainException(CONFLICT, "INSUFFICIENT_STOCK", "Brak dostępnych sztuk. Odśwież koszyk.");
+            }
+            stock.reserved += quantity;
+            stock.updatedAt = clock.instant();
+        }
+        inventory.flush();
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void release(java.util.Map<UUID, Integer> quantities) {
+        for (UUID id : quantities.keySet().stream().sorted(java.util.Comparator.comparing(UUID::toString)).toList()) {
+            var stock = inventory.findLockedByProductId(id).orElseThrow(InventoryService::notFound);
+            int quantity = quantities.get(id);
+            if (quantity <= 0 || stock.reserved < quantity) throw new IllegalStateException("Reservation invariant violated");
+            stock.reserved -= quantity;
+            stock.updatedAt = clock.instant();
+        }
+        inventory.flush();
+    }
+
     @PreAuthorize("hasRole('EMPLOYEE')")
     @Transactional(readOnly = true)
     public StockResponse get(UUID productId) {

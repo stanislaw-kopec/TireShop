@@ -26,9 +26,11 @@ Domyślny profil `local` uruchamia PostgreSQL 17 oraz Mailpit (lokalny podgląd 
 - OpenAPI: http://localhost:8080/v3/api-docs
 - Podgląd lokalnych zaproszeń i resetów haseł: http://localhost:8025
 
-Backend obejmuje konta, logowanie JWT, adresy, zaproszenia pracowników, resetowanie haseł oraz katalog opon, podstawowy magazyn i koszyk klienta/gościa. Pracownik tworzy/edytuje produkty i zapisuje dostawy lub korekty, administrator ustala ceny i dopuszcza sprzedaż. Publiczny katalog ma filtry, paginację i sortowanie po cenie. Zamówienia, rezerwacje czasowe i płatności są kolejnymi etapami. Backend nie udostępnia strony pod `/`.
+Backend obejmuje konta, logowanie JWT, adresy, zaproszenia pracowników, resetowanie haseł, katalog, magazyn, koszyk i zamówienia z 15-minutową rezerwacją. Pracownik tworzy/edytuje produkty i zapisuje dostawy lub korekty, administrator ustala ceny i dopuszcza sprzedaż. Publiczny katalog ma filtry, paginację i sortowanie po cenie. Płatności i realizacja wysyłki są kolejnymi etapami. Backend nie udostępnia strony pod `/`.
 
 V5 dodaje koszyki i ich pozycje. [API koszyka](docs/cart-api.md) opisuje token gościa w `X-Cart-Token` (dla przyszłego Angulara: sessionStorage, bez cookie), podsumowanie cen i dostawy oraz scalanie po zalogowaniu. Konflikt dostępności zachowuje oba koszyki. Testy obejmują także prywatność koszyków, dostawę dla 3/4 sztuk, aktualizację cen, wygasanie tokenu i równoczesne ponowienia scalania.
+
+V6 dodaje podsumowania i zamówienia. [API zamówień](docs/order-api.md) opisuje potwierdzanie aktualnej ceny, token zakupu gościa (`X-Purchase-Token`), ponawianie „Zapłać”, dostęp klienta i anulowanie nieopłaconych. Utworzenie zamówienia zapisuje dane historyczne, atomowo rezerwuje wszystkie sztuki i czyści koszyk. Zadanie co 15 sekund zwalnia wygasłe rezerwacje. Nie oznacza jeszcze zapłaty — status nowego zamówienia to PENDING_PAYMENT. Testy obejmują rywalizację o ostatnie sztuki, rollback, niezmienność cen/adresu oraz granicę wygaśnięcia i wyścig z anulowaniem.
 
 Przełożenie materiałów z laboratoriów na Springa: [zasady laboratoryjne](docs/lab-guidelines.md).
 

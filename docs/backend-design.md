@@ -1,10 +1,10 @@
 # TireShop — wstępny projekt backendu i bazy
 
-Stan: projekt z 9 października, aktualizacja uwierzytelniania oraz katalogu i magazynu 4 listopada 2026. Wymagania wiążące są w `AGENTS.md`. Dokument odróżnia bieżącą implementację od dalszego projektu. Obejmuje backend; Angular jest przyszłym klientem API.
+Stan: projekt z 9 października, aktualizacja po wdrożeniu koszyka i zamówień 5 listopada 2026. Wymagania wiążące są w `AGENTS.md`. Dokument odróżnia bieżącą implementację od dalszego projektu. Obejmuje backend; Angular jest przyszłym klientem API.
 
 Pierwszy etap obejmuje `app_account`, `account_address`, `account_action_token`, rejestrację, JWT Bearer, profil i adres, wyszukiwanie kont przez administratora, zaproszenia i reset haseł. JWT zastąpił sesje HTTP: historyczne V1/V2 pozostają, a V3 usuwa tabele Spring Session. Kontrakt: [backend-api.md](backend-api.md).
 
-Drugi etap (V4) dodaje `manufacturer`, `tire_product`, `inventory` i `inventory_change`: katalog publiczny i personelu, parametry produktu, ceny, dopuszczenie sprzedaży, dostawy, korekty oraz historię magazynu. Kontrakt: [catalog-api.md](catalog-api.md). V5 (5 listopada 2026) dodaje `shopping_cart` i `cart_item`; bieżący schemat ma 9 tabel domenowych. Kontrakt: [cart-api.md](cart-api.md). Rezerwacje, zamówienia i płatności w poniższym diagramie pozostają dalszym projektem. Symbol CART w diagramie odpowiada tabeli `shopping_cart`.
+Drugi etap (V4) dodaje `manufacturer`, `tire_product`, `inventory` i `inventory_change`: katalog publiczny i personelu, parametry produktu, ceny, dopuszczenie sprzedaży, dostawy, korekty oraz historię magazynu. Kontrakt: [catalog-api.md](catalog-api.md). V5 dodaje `shopping_cart` i `cart_item`: [cart-api.md](cart-api.md). V6 (5 listopada 2026) dodaje `checkout_quote`, `customer_order`, `order_item` i rezerwację 15 minut: [order-api.md](order-api.md). Bieżący schemat ma 12 tabel domenowych. Płatności, linki śledzenia i historia realizacji w diagramie pozostają dalszym projektem. Symbol CART odpowiada `shopping_cart`.
 
 ## Przyjęte decyzje
 
@@ -43,6 +43,8 @@ erDiagram
     TIRE_PRODUCT ||--|| INVENTORY : "stan"
     CART ||--o{ CART_ITEM : "pozycje"
     TIRE_PRODUCT ||--o{ CART_ITEM : "produkt"
+    CART ||--o{ CHECKOUT_QUOTE : "podsumowania bez rezerwacji"
+    CHECKOUT_QUOTE ||--o| CUSTOMER_ORDER : "jedno potwierdzenie"
     CUSTOMER_ORDER ||--|{ ORDER_ITEM : "zakupione pozycje"
     TIRE_PRODUCT ||--o{ ORDER_ITEM : "produkt i kopia danych"
     CUSTOMER_ORDER ||--o{ PAYMENT_ATTEMPT : "proby platnosci"
@@ -54,7 +56,7 @@ erDiagram
     ORDER_ITEM o|--o| INVENTORY_CHANGE : "jednorazowe wydanie przy sprzedazy"
 ```
 
-W projekcie jest 14 tabel domenowych, w tym zatwierdzony prosty rejestr zmian magazynu `INVENTORY_CHANGE`. Nie dodajemy tabel słownikowych dla każdej wartości enum ani osobnych tabel modelu, rozmiaru i sezonu.
+W projekcie jest 15 tabel domenowych, w tym rejestr zmian magazynu `INVENTORY_CHANGE` oraz dodane podsumowania `CHECKOUT_QUOTE`. Nie dodajemy tabel słownikowych dla każdej wartości enum ani osobnych tabel modelu, rozmiaru i sezonu.
 
 ## Tabele i kluczowe pola
 
@@ -70,8 +72,9 @@ Typy wspólne: identyfikatory `uuid`, kwoty `numeric(12,2)`, czas `timestamptz` 
 | `inventory` / inventory | `product_id PK/FK`, `on_hand`, `reserved`, `version`, `updated_at` | `0 <= reserved <= on_hand`. Dostępne = `on_hand - reserved`; nie zapisujemy trzeciego niezależnego licznika. Produkt i stan początkowy 0 tworzone atomowo. |
 | `shopping_cart` / cart | `id PK`, `account_id FK NULL UNIQUE`, `guest_token_hash NULL UNIQUE`, `expires_at NULL`, `merged_account_id FK NULL`, `created_at` | Konto albo skrót tokenu gościa (CHECK). Jeden koszyk konta. Wiersz gościa po scaleniu zachowuje odbiorcę dla idempotencji; dostęp ograniczony terminem. Blokada FOR UPDATE serializuje zmiany, przy scalaniu najpierw gość, potem konto. |
 | `cart_item` / cart | `cart_id FK`, `product_id FK`, `quantity` | Złożony PK(cart_id, product_id), quantity > 0. Cena odczytywana z katalogu; koszyk niczego nie rezerwuje. |
-| `customer_order` / order | `id PK`, `order_number UNIQUE`, `account_id FK NULL`, `guest_owner_key NULL`, `status`, `contact_email`, `contact_phone`, pola adresu dostawy, `currency`, `items_total_gross`, `shipping_gross`, `total_gross`, `created_at`, `reservation_expires_at`, `paid_at NULL`, `tracking_number NULL`, `shipped_at NULL`, `delivered_at NULL`, `cancellation_reason NULL`, `checkout_key UNIQUE`, `checkout_request_hash`, `version` | Dokładnie jeden właściciel podczas zakupu: konto albo kontekst gościa. Zamówienie gościa nie tworzy fikcyjnego konta. Adres i kontakt są kopią z chwili zakupu. `checkout_key` chroni przed podwójnym kliknięciem zakupu; wynik dostępny tylko uprawnionemu właścicielowi. |
-| `order_item` / order | `id PK`, `order_id FK`, `product_id FK`, `quantity`, `manufacturer_name`, `model`, `width_mm`, `aspect_ratio`, `rim_diameter_in`, `season`, `unit_price_gross`, `line_total_gross` | UNIQUE(order_id, product_id), quantity > 0. Dane opisowe i cena są niezmiennym snapshotem. FK nie zastępuje kopii. |
+| `checkout_quote` / order | `id PK`, `cart_id FK`, `account_id FK NULL`, `guest_token_hash NULL`, `access_expires_at NULL`, `expires_at`, `snapshot jsonb` | Podsumowanie ważne 15 minut, bez rezerwacji. Gość dostaje osobny losowy token zakupu ważny 24 h. Snapshot zawiera pozycje, ceny, sumy i kontakt/adres, sprawdzane ponownie przy potwierdzeniu. |
+| `customer_order` / order | `id PK`, `quote_id FK UNIQUE`, `checkout_key UNIQUE`, `account_id FK NULL`, `guest_token_hash NULL`, `access_expires_at NULL`, `status`, `delivery jsonb`, `currency`, `items_total_gross`, `shipping_gross`, `total_gross`, `created_at`, `reservation_expires_at`, `cancellation_reason NULL` | W V6 numer to TS-UUID. Konto XOR kontekst gościa; kopia kontaktu/adresu. Kwoty sum numeric(24,2). Blokada wiersza serializuje anulowanie/wygaśnięcie. Pola płatności/przesyłki zostaną dodane nowymi migracjami; nie są zaimplementowane. |
+| `order_item` / order | `order_id FK`, `product_id FK`, `product_snapshot jsonb`, `quantity`, `unit_price_gross`, `line_total_gross` | Złożony PK(order_id, product_id), quantity > 0. Kopia nazwy producenta/modelu, rozmiaru, sezonu, zdjęcia. Cena numeric(12,2), suma numeric(24,2). FK nie zastępuje kopii. |
 | `payment_attempt` / payment | `id PK`, `order_id FK`, `status`, `amount_gross`, `currency`, `created_at`, `finished_at NULL`, `failure_code NULL` | Jedno zamówienie może mieć wiele prób, ale najwyżej jedną oczekującą i jedną udaną. Kwota z zamówienia, nie z przeglądarki. ID próby nie daje prawa zmiany wyniku. |
 | `order_access_token` / order | `id PK`, `order_id FK`, `token_hash UNIQUE`, `created_at`, `expires_at`, `revoked_at NULL` | Wielokrotny odczyt statusu gościa; to inny token niż jednorazowy reset hasła. Pierwszy link wygasa 90 dni po zapłacie; odnowiony link wygasa 90 dni od swojego wydania. Nowy link wysyłany wyłącznie na e-mail zamówienia. |
 | `order_status_history` / order | `id PK`, `order_id FK`, `from_status NULL`, `to_status`, `changed_by FK NULL`, `changed_at`, `reason NULL` | Historia zmian; NULL autora oznacza system, np. płatność lub wygaśnięcie. Tworzona razem ze zmianą statusu. |
@@ -127,12 +130,12 @@ Kontrakt i konfiguracja: [API](backend-api.md), [README](../README.md). Przeło�
 
 JWT dotyczy zalogowanego konta. Gość nie ma fikcyjnego konta ani takiego JWT. Poprzedni projekt wiązał go z anonimową sesją; po zmianie logowania nie należy bez uzgodnienia przywracać tego mechanizmu.
 
-Wybrano osobny losowy token gościa (32 bajty), przesyłany w X-Cart-Token, przechowywany przez przyszły Angular w sessionStorage do zamknięcia karty. Baza przechowuje SHA-256, backend egzekwuje maksymalnie 24 godziny ważności. Nie ma cookie ani przywracania sesji logowania. Scalanie sprawdza całe sumy ilości i przy konflikcie pozostawia oba koszyki bez zmian. Dowód dostępu do przyszłego zamówienia gościa wymaga osobnego zaprojektowania; token koszyka po scaleniu nie uprawnia do konta ani zamówień.
+Wybrano osobny losowy token gościa (32 bajty), przesyłany w X-Cart-Token, przechowywany przez przyszły Angular w sessionStorage do zamknięcia karty. Baza przechowuje SHA-256, backend egzekwuje maksymalnie 24 godziny ważności. Nie ma cookie ani przywracania sesji logowania. Scalanie sprawdza całe sumy ilości i przy konflikcie pozostawia oba koszyki bez zmian. V6 wydaje w podsumowaniu oddzielny token zakupu w X-Purchase-Token, ważny 24 godziny i niezależny od późniejszego scalenia. Token koszyka po scaleniu nie uprawnia do konta ani zamówień.
 
 Niezależnie od wyboru pozostają reguły:
 
 1. Właściciela ustala backend. Logowanie nie gubi koszyka; scalanie sumuje ilości i wykonuje się dokładnie raz, także przy ponowieniu/równoległości.
-2. Jeśli suma przekracza dostępność, propozycja UX to pokazanie konfliktu i zablokowanie zakupu do poprawienia ilości; bez cichego usuwania pozycji. Koszyk niczego nie rezerwuje.
+2. Jeśli suma przekracza dostępność, uzgodniona reguła to konflikt i zachowanie obu koszyków bez zmian do poprawienia ilości. Koszyk niczego nie rezerwuje.
 3. Płatność można rozpocząć/ponowić tylko dla zamówienia własnego kontekstu. ID zamówienia/próby nie daje dostępu. Logowanie po złożeniu zamówienia nie zmienia jego właściciela.
 4. Link po zapłacie to osobny losowy token dający wyłącznie odczyt statusu i numeru przesyłki. Działa niezależnie od JWT konta i kontekstu koszyka, nie pozwala edytować ani płacić.
 5. W bazie zapisujemy hash tokenu śledzenia; jawny link otrzymuje wyłącznie uprawniony odbiorca. Linku nie wolno logować. Ważność: 90 dni od zapłaty, po odnowieniu 90 dni od wydania; wysyłka tylko na zapisany e-mail zamówienia.
@@ -143,10 +146,10 @@ Niezależnie od wyboru pozostają reguły:
 
 | Temat | Propozycja | Powód |
 |---|---|---|
-| Zmiana ceny w koszyku | Ponowne potwierdzenie kwoty przed złożeniem zamówienia | Klient nie powinien nieświadomie kupić drożej. Cena złożonego zamówienia jest zamrożona na czas płatności. |
+| Zmiana ceny w koszyku — zatwierdzona i wdrożona | Ponowne podsumowanie i potwierdzenie przed złożeniem zamówienia | Klient nie powinien nieświadomie kupić drożej. Cena złożonego zamówienia jest zamrożona na czas płatności. |
 | Adres przy zakupie | Osobna decyzja klienta o zapisaniu wpisanego adresu na koncie | Adres jednorazowej dostawy nie powinien automatycznie nadpisywać profilu. |
 | Numer przesyłki | Wymagany do przejścia do SHIPPED, jedna przesyłka na zamówienie | Unika statusu „wysłane” bez danych do śledzenia. |
-| Anulowanie | Klient anuluje tylko nieopłacone zamówienie; proces zwrotów poza MVP | Zgodne z brakiem symulatora zwrotów. Link śledzenia nie daje prawa anulowania. |
+| Anulowanie — zatwierdzone i wdrożone | Klient/gość anuluje tylko nieopłacone zamówienie; proces zwrotów poza MVP | Wymaga JWT właściciela lub tokenu zakupu. Przyszły link śledzenia nie daje prawa anulowania. |
 | Uprawnienia admina | Pozostawić osobne od pracownika; ewentualne łączenie ról ustalić wcześniej | Wpływa na pole role i testy autoryzacji. |
 | E-mail i awarie | Mała kolejka wiadomości w tej samej bazie (`email_outbox`) z ponawianiem | Awaria poczty nie cofa zapłaty. Nie potrzeba brokera. Tabela opcjonalna, poza głównym ERD. |
 
@@ -158,7 +161,7 @@ Jeśli akceptujemy outbox: zapis zadania wiadomości razem z zatwierdzeniem zam�
 2. Konta, logowanie JWT, role, właściciel zasobu, zaproszenia/reset. Frontend nie jest potrzebny do testów tego etapu.
 3. Katalog i podstawowy magazyn wraz z uprawnieniami pracownika/admina — zaimplementowane w V4. Rezerwacje i wydania sprzedażowe pozostają przy etapach zamówień/płatności.
 4. Koszyk gościa/klienta i bezpieczne łączenie po zalogowaniu — zaimplementowane w V5.
-5. Zamówienia, snapshoty, dostawa, atomowa rezerwacja i wygaśnięcie; idempotencja checkoutu. Ten sam klucz z inną treścią żądania zwraca konflikt, nie nowe zamówienie.
+5. Zamówienia, snapshoty, dostawa, atomowa rezerwacja i wygaśnięcie — zaimplementowane w V6. To samo quoteId + checkoutKey zwraca to samo zamówienie; zmieniony klucz/podsumowanie daje konflikt. Token zakupu gościa jest niezależny od koszyka.
 6. Symulator płatności, linki gościa i wiadomości. Testy wyścigów oraz duplikatów.
 7. Realizacja zamówień przez pracownika, historia statusów, numer przesyłki i uzupełnienie testów uprawnień.
 
