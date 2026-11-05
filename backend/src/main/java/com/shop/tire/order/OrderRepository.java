@@ -61,6 +61,7 @@ class OrderRepository {
         }
     }
     void cancel(UUID id, String reason) { jdbc.update("UPDATE customer_order SET status='CANCELLED',cancellation_reason=? WHERE id=?",reason,id); }
+    void paid(UUID id, Instant at) { jdbc.update("UPDATE customer_order SET status='PAID',paid_at=? WHERE id=?",stamp(at),id); }
     List<UUID> expired(Instant now) {
         return jdbc.query("SELECT id FROM customer_order WHERE status='PENDING_PAYMENT' AND reservation_expires_at<=? ORDER BY reservation_expires_at,id LIMIT 100",
                 (rs,row)->rs.getObject(1,UUID.class),stamp(now));

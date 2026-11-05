@@ -56,6 +56,26 @@ public class InventoryService {
         inventory.flush();
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
+    public java.time.Instant sellReserved(UUID orderId, java.util.Map<UUID,Integer> quantities, java.time.Instant deadline) {
+        var stocks = quantities.keySet().stream().sorted(java.util.Comparator.comparing(UUID::toString))
+                .map(id -> inventory.findLockedByProductId(id).orElseThrow(InventoryService::notFound)).toList();
+        // Decide only after ALL stock locks: waiting for a correction cannot permit a late payment.
+        var now = clock.instant();
+        if (!now.isBefore(deadline)) return null;
+        now = now.truncatedTo(ChronoUnit.MICROS);
+        for (var stock : stocks) {
+            int quantity = quantities.get(stock.productId);
+            if (quantity <= 0 || stock.reserved < quantity) throw new IllegalStateException("Reservation invariant violated");
+            stock.onHand -= quantity;
+            stock.reserved -= quantity;
+            stock.updatedAt = now;
+            changes.save(InventoryChange.sale(stock,orderId,quantity,now));
+        }
+        inventory.flush();
+        return now;
+    }
+
     @PreAuthorize("hasRole('EMPLOYEE')")
     @Transactional(readOnly = true)
     public StockResponse get(UUID productId) {
@@ -65,7 +85,7 @@ public class InventoryService {
     @PreAuthorize("hasRole('EMPLOYEE')")
     @Transactional
     public MovementResponse change(UUID productId, MovementRequest input, UUID actorId) {
-        if (input.quantityDelta() == 0 || (input.type() == MovementType.RECEIPT && input.quantityDelta() < 0)) {
+        if (input.type() == MovementType.SALE || input.quantityDelta() == 0 || (input.type() == MovementType.RECEIPT && input.quantityDelta() < 0)) {
             throw new DomainException(INVALID_INPUT, "INVALID_STOCK_CHANGE",
                     "Dostawa wymaga dodatniej liczby sztuk, a korekta zmiany różnej od zera.");
         }

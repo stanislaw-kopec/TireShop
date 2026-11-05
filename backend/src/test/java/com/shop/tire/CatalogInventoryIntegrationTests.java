@@ -694,6 +694,208 @@ class CatalogInventoryIntegrationTests {
         assertThat(get(employee,stock(product)).get("reserved").asInt()).isEqualTo(2);
     }
 
+    @Test
+    void successfulPaymentUsesFrozenAmountAndSellsReservedStockExactlyOnce() throws Exception {
+        String product=offer(details(brand(),"Payment success"),"100.00",8);
+        var order=createCustomerOrder(product,3);
+        String orderPath="/api/orders/"+order.get("id").asText();
+        String path=orderPath+"/payments";
+        setPrice(product,"999.00");
+        var input=Map.of("requestKey",UUID.randomUUID());
+        var created=call(customer,"POST",path,input);
+        var payment=expect(created,201);
+        assertThat(payment.get("amountGross").decimalValue()).isEqualByComparingTo("320.00");
+        assertThat(payment.get("simulation").asBoolean()).isTrue();
+        String paymentPath=created.headers().firstValue("location").orElseThrow();
+        assertThat(get(customer,paymentPath)).isEqualTo(payment);
+        var results=parallel(List.of(
+                request(customer,"POST",paymentPath+"/simulation-result",Map.of("outcome","SUCCEEDED")),
+                request(customer,"POST",paymentPath+"/simulation-result",Map.of("outcome","SUCCEEDED"))));
+        var paid=expect(results.getFirst(),200);
+        assertThat(expect(results.getLast(),200)).isEqualTo(paid);
+        assertThat(paid.get("status").asText()).isEqualTo("SUCCEEDED");
+        assertThat(get(customer,orderPath).get("status").asText()).isEqualTo("PAID");
+        assertThat(jdbc.queryForObject("select paid_at from customer_order where id=?",java.sql.Timestamp.class,UUID.fromString(order.get("id").asText()))).isNotNull();
+        assertThat(get(employee,stock(product)).get("onHand").asInt()).isEqualTo(5);
+        assertThat(get(employee,stock(product)).get("reserved").asInt()).isZero();
+        var history=get(employee,stock(product)+"/movements");
+        assertThat(history.get("totalElements").asInt()).isEqualTo(2);
+        assertThat(history.at("/items/0/type").asText()).isEqualTo("SALE");
+        assertThat(history.at("/items/0/actorAccountId").isNull()).isTrue();
+        assertThat(history.at("/items/0/orderId").asText()).isEqualTo(order.get("id").asText());
+        assertThat(expect(call(customer,"POST",path,input),201)).isEqualTo(paid);
+        problem(call(customer,"POST",paymentPath+"/simulation-result",Map.of("outcome","FAILED")),409,"PAYMENT_RESULT_CONFLICT");
+        problem(call(customer,"POST",path,Map.of("requestKey",UUID.randomUUID())),409,"ORDER_NOT_PAYABLE");
+        problem(call(customer,"POST",orderPath+"/cancellation",null),409,"ORDER_NOT_CANCELLABLE");
+    }
+
+    @Test
+    void failedAndCancelledAttemptsAllowRetryWithoutExtendingReservation() throws Exception {
+        String product=offer(details(brand(),"Retry payment"),"20.00",5);
+        var order=createCustomerOrder(product,2);
+        String orderPath="/api/orders/"+order.get("id").asText();
+        String path=orderPath+"/payments";
+        for (String outcome:List.of("FAILED","CANCELLED")) {
+            var key=Map.of("requestKey",UUID.randomUUID());
+            var responses=parallel(List.of(request(customer,"POST",path,key),request(customer,"POST",path,key)));
+            var attempt=expect(responses.getFirst(),201);
+            assertThat(expect(responses.getLast(),201)).isEqualTo(attempt);
+            problem(call(customer,"POST",path,Map.of("requestKey",UUID.randomUUID())),409,"PAYMENT_PENDING");
+            String result=path+"/"+attempt.get("id").asText()+"/simulation-result";
+            var finished=expect(call(customer,"POST",result,Map.of("outcome",outcome)),200);
+            assertThat(expect(call(customer,"POST",result,Map.of("outcome",outcome)),200)).isEqualTo(finished);
+            assertThat(get(customer,orderPath).get("reservationExpiresAt")).isEqualTo(order.get("reservationExpiresAt"));
+            assertThat(get(customer,orderPath).get("status").asText()).isEqualTo("PENDING_PAYMENT");
+            assertThat(get(employee,stock(product)).get("reserved").asInt()).isEqualTo(2);
+            assertThat(get(employee,stock(product)).get("onHand").asInt()).isEqualTo(5);
+        }
+        assertThat(get(customer,path+"?size=1").get("totalElements").asInt()).isEqualTo(2);
+        assertThat(get(customer,path+"?size=1").get("totalPages").asInt()).isEqualTo(2);
+        var next=expect(call(customer,"POST",path,Map.of("requestKey",UUID.randomUUID())),201);
+        expect(call(customer,"POST",path+"/"+next.get("id").asText()+"/simulation-result",Map.of("outcome","SUCCEEDED")),200);
+    }
+
+    @Test
+    void expiredSuccessCommitsCancellationAndReleasesStockWithoutBackgroundJob() throws Exception {
+        String product=offer(details(brand(),"Late payment"),"20.00",5);
+        var order=createCustomerOrder(product,2);
+        UUID id=UUID.fromString(order.get("id").asText());
+        String path="/api/orders/"+id+"/payments";
+        var attempt=expect(call(customer,"POST",path,Map.of("requestKey",UUID.randomUUID())),201);
+        jdbc.update("update customer_order set created_at=now()-interval '16 minutes',reservation_expires_at=now()-interval '1 minute' where id=?",id);
+        problem(call(customer,"POST",path+"/"+attempt.get("id").asText()+"/simulation-result",Map.of("outcome","SUCCEEDED")),409,"ORDER_NOT_PAYABLE");
+        assertThat(jdbc.queryForObject("select status from customer_order where id=?",String.class,id)).isEqualTo("CANCELLED");
+        var cancelled=get(customer,path+"/"+attempt.get("id").asText());
+        assertThat(cancelled.get("status").asText()).isEqualTo("CANCELLED");
+        assertThat(cancelled.get("reason").asText()).isEqualTo("EXPIRED");
+        orders.expire(id);
+        assertThat(get(employee,stock(product)).get("reserved").asInt()).isZero();
+        assertThat(get(employee,stock(product)).get("onHand").asInt()).isEqualTo(5);
+    }
+
+    @Test
+    void paymentAndOrderCancellationRaceHasOneAtomicOutcome() throws Exception {
+        String product=offer(details(brand(),"Race cancellation"),"20.00",5);
+        var order=createCustomerOrder(product,2);
+        String orderPath="/api/orders/"+order.get("id").asText();
+        String path=orderPath+"/payments";
+        var attempt=expect(call(customer,"POST",path,Map.of("requestKey",UUID.randomUUID())),201);
+        var responses=parallel(List.of(
+                request(customer,"POST",path+"/"+attempt.get("id").asText()+"/simulation-result",Map.of("outcome","SUCCEEDED")),
+                request(customer,"POST",orderPath+"/cancellation",null)));
+        assertThat(responses.stream().map(HttpResponse::statusCode).toList()).containsExactlyInAnyOrder(200,409);
+        boolean paid=get(customer,orderPath).get("status").asText().equals("PAID");
+        assertThat(get(customer,path+"/"+attempt.get("id").asText()).get("status").asText()).isEqualTo(paid?"SUCCEEDED":"CANCELLED");
+        assertThat(get(employee,stock(product)).get("reserved").asInt()).isZero();
+        assertThat(get(employee,stock(product)).get("onHand").asInt()).isEqualTo(paid?3:5);
+        assertThat(get(employee,stock(product)+"/movements").get("totalElements").asInt()).isEqualTo(paid?2:1);
+    }
+
+    @Test
+    void paymentWriteFailureRollsBackOrderSaleAndAuditTogether() throws Exception {
+        String product=offer(details(brand(),"Rollback payment"),"20.00",5);
+        var order=createCustomerOrder(product,2);
+        String orderPath="/api/orders/"+order.get("id").asText();
+        String path=orderPath+"/payments";
+        var attempt=expect(call(customer,"POST",path,Map.of("requestKey",UUID.randomUUID())),201);
+        UUID id=UUID.fromString(attempt.get("id").asText());
+        String result=path+"/"+id+"/simulation-result";
+        jdbc.execute("ALTER TABLE payment_attempt ADD CONSTRAINT test_payment_failure CHECK (id <> '"+id+"'::uuid OR status <> 'SUCCEEDED')");
+        try {
+            problem(call(customer,"POST",result,Map.of("outcome","SUCCEEDED")),409,"DATA_CONFLICT");
+            assertThat(get(customer,orderPath).get("status").asText()).isEqualTo("PENDING_PAYMENT");
+            assertThat(get(customer,path+"/"+id).get("status").asText()).isEqualTo("PENDING");
+            assertThat(get(employee,stock(product)).get("onHand").asInt()).isEqualTo(5);
+            assertThat(get(employee,stock(product)).get("reserved").asInt()).isEqualTo(2);
+            assertThat(get(employee,stock(product)+"/movements").get("totalElements").asInt()).isEqualTo(1);
+        } finally {
+            jdbc.execute("ALTER TABLE payment_attempt DROP CONSTRAINT test_payment_failure");
+        }
+        expect(call(customer,"POST",result,Map.of("outcome","SUCCEEDED")),200);
+    }
+
+    @Test
+    void paymentsEnforceOwnershipRolesInputAndAmountConsistency() throws Exception {
+        String product=offer(details(brand(),"Payment privacy"),"20.00",5);
+        var order=createCustomerOrder(product,2);
+        String path="/api/orders/"+order.get("id").asText()+"/payments";
+        var attempt=expect(call(customer,"POST",path,Map.of("requestKey",UUID.randomUUID())),201);
+        String id=attempt.get("id").asText();
+        String result=path+"/"+id+"/simulation-result";
+        problem(call(null,"GET",path,null),401,"AUTHENTICATION_REQUIRED");
+        problem(call(loginFixture("CUSTOMER"),"POST",result,Map.of("outcome","SUCCEEDED")),404,"ORDER_NOT_FOUND");
+        for (String token:List.of(admin,employee)) problem(call(token,"POST",result,Map.of("outcome","SUCCEEDED")),403,"ACCESS_DENIED");
+        problem(call(customer,"GET",path+"/"+UUID.randomUUID(),null),404,"PAYMENT_NOT_FOUND");
+        problem(call(customer,"GET",path+"?size=101",null),400,"VALIDATION_FAILED");
+        problem(call(customer,"POST",result,Map.of("outcome","PENDING")),400,"INVALID_REQUEST");
+        problem(call(customer,"POST",result,Map.of("outcome","SUCCEEDED","amountGross",1)),400,"INVALID_REQUEST");
+        problem(call(customer,"POST",path,Map.of("requestKey",UUID.randomUUID(),"accountId",UUID.randomUUID())),400,"INVALID_REQUEST");
+        var manual=new HashMap<>(movement(-2)); manual.put("type","SALE");
+        problem(call(employee,"POST",stock(product)+"/movements",manual),400,"INVALID_STOCK_CHANGE");
+        jdbc.update("update payment_attempt set amount_gross=1 where id=?",UUID.fromString(id));
+        problem(call(customer,"POST",result,Map.of("outcome","SUCCEEDED")),409,"PAYMENT_AMOUNT_MISMATCH");
+        assertThat(get(employee,stock(product)).get("reserved").asInt()).isEqualTo(2);
+        assertThat(get(employee,stock(product)).get("onHand").asInt()).isEqualTo(5);
+        var api=get(null,"/v3/api-docs");
+        assertThat(api.at("/paths/~1api~1orders~1{orderId}~1payments/post/security/0/bearerAuth").isArray()).isTrue();
+        assertThat(api.at("/paths/~1api~1guest~1orders~1{orderId}~1payments/post/security/0/purchaseToken").isArray()).isTrue();
+    }
+
+    @Test
+    void guestPaymentUsesOnlyPurchaseContextAndDoesNotBecomeAccountOrder() throws Exception {
+        String product=offer(details(brand(),"Guest payment"),"20.00",5);
+        String cart=newGuest();
+        expect(guestCall(cart,"PUT","/items/"+product,Map.of("quantity",2)),200);
+        var quote=expect(headerCall(null,"X-Cart-Token",cart,"POST","/api/guest/orders/preview",previewInput()),200);
+        String token=quote.get("purchaseToken").asText();
+        var order=expect(headerCall(null,"X-Purchase-Token",token,"POST","/api/guest/orders",
+                Map.of("quoteId",quote.get("id").asText(),"checkoutKey",UUID.randomUUID())),201);
+        String path="/api/guest/orders/"+order.get("id").asText()+"/payments";
+        problem(headerCall(null,"X-Purchase-Token",cart,"POST",path,Map.of("requestKey",UUID.randomUUID())),404,"ORDER_NOT_FOUND");
+        var attempt=expect(headerCall(null,"X-Purchase-Token",token,"POST",path,Map.of("requestKey",UUID.randomUUID())),201);
+        expect(headerCall(customer,"X-Purchase-Token",token,"POST",path+"/"+attempt.get("id").asText()+"/simulation-result",Map.of("outcome","SUCCEEDED")),200);
+        assertThat(expect(headerCall(null,"X-Purchase-Token",token,"GET","/api/guest/orders/"+order.get("id").asText(),null),200).get("status").asText()).isEqualTo("PAID");
+        problem(call(customer,"GET","/api/orders/"+order.get("id").asText()+"/payments",null),404,"ORDER_NOT_FOUND");
+    }
+
+    @Test
+    void expiryRacingWithPaymentClosesPendingAttemptAndReleasesOnlyOnce() throws Exception {
+        String product=offer(details(brand(),"Expiry race"),"20.00",5);
+        var order=createCustomerOrder(product,2);
+        UUID id=UUID.fromString(order.get("id").asText());
+        String path="/api/orders/"+id+"/payments";
+        var attempt=expect(call(customer,"POST",path,Map.of("requestKey",UUID.randomUUID())),201);
+        jdbc.update("update customer_order set created_at=now()-interval '16 minutes',reservation_expires_at=now()-interval '1 minute' where id=?",id);
+        var expiry=CompletableFuture.runAsync(()->orders.expire(id));
+        expect(call(customer,"POST",path+"/"+attempt.get("id").asText()+"/simulation-result",Map.of("outcome","SUCCEEDED")),409);
+        expiry.get(20,TimeUnit.SECONDS);
+        assertThat(get(customer,path+"/"+attempt.get("id").asText()).get("reason").asText()).isEqualTo("EXPIRED");
+        assertThat(get(employee,stock(product)).get("onHand").asInt()).isEqualTo(5);
+        assertThat(get(employee,stock(product)).get("reserved").asInt()).isZero();
+        assertThat(get(employee,stock(product)+"/movements").get("totalElements").asInt()).isEqualTo(1);
+    }
+
+    @Test
+    void multiProductSalePreservesAnotherOrdersReservationDuringStockReceipt() throws Exception {
+        String first=offer(details(brand(),"First sale item"),"20.00",5);
+        String second=offer(details(brand(),"Second sale item"),"30.00",5);
+        createCustomerOrder(first,1);
+        expect(call(customer,"PUT","/api/cart/items/"+first,Map.of("quantity",2)),200);
+        var order=createCustomerOrder(second,2);
+        String path="/api/orders/"+order.get("id").asText()+"/payments";
+        var attempt=expect(call(customer,"POST",path,Map.of("requestKey",UUID.randomUUID())),201);
+        assertThat(attempt.get("amountGross").decimalValue()).isEqualByComparingTo("100.00");
+        var results=parallel(List.of(
+                request(customer,"POST",path+"/"+attempt.get("id").asText()+"/simulation-result",Map.of("outcome","SUCCEEDED")),
+                request(employee,"POST",stock(first)+"/movements",movement(1))));
+        for (var response:results) expect(response,200);
+        assertThat(get(employee,stock(first)).get("onHand").asInt()).isEqualTo(4);
+        assertThat(get(employee,stock(first)).get("reserved").asInt()).isEqualTo(1);
+        assertThat(get(employee,stock(second)).get("onHand").asInt()).isEqualTo(3);
+        assertThat(get(employee,stock(second)).get("reserved").asInt()).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from inventory_change where order_id=?",Integer.class,UUID.fromString(order.get("id").asText()))).isEqualTo(2);
+    }
+
     private Map<String,Object> deliveryAddress() {
         return Map.of("recipientName","Test Customer","street","Testowa","buildingNumber","1","postalCode","00-001","city","Warszawa","countryCode","PL");
     }

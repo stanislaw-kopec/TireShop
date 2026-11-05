@@ -1,6 +1,6 @@
 # Zamówienia, podsumowanie i rezerwacja
 
-Etap V6: podsumowanie zakupu, utworzenie zamówienia, rezerwacja 15 minut, historia własnych zamówień, anulowanie nieopłaconych i automatyczne wygaśnięcie. Nie ma jeszcze płatności, linków śledzenia po zapłacie ani panelu realizacji pracownika.
+Etap V6: podsumowanie zakupu, utworzenie zamówienia, rezerwacja 15 minut, historia własnych zamówień, anulowanie nieopłaconych i automatyczne wygaśnięcie. V7 dodaje [symulator płatności](payment-api.md) i wydanie towaru po zapłacie. Linki śledzenia po zapłacie i panel realizacji pracownika pozostają do wdrożenia.
 
 ## Ścieżka API
 
@@ -67,6 +67,6 @@ Konfiguracja: `app.order.expiry-job-enabled` (domyślnie true) i `app.order.expi
 
 Klient odczytuje/anuluje tylko swoje zamówienia. Gość używa tokenu zakupu konkretnego podsumowania/zamówienia, nie tokenu koszyka. Logowanie i scalenie koszyka po utworzeniu zamówienia nie przypisuje zakupu gościa do konta i nie odbiera dostępu przez token zakupu. Po 24 godzinach token wygasa; przyszły ograniczony link śledzenia po zapłacie będzie osobnym mechanizmem. Sam UUID zamówienia/quoteId, JWT innego klienta albo token innego zakupu daje 404 ORDER_NOT_FOUND. Operacje konta wymagają CUSTOMER (pracownik/admin nie dziedziczą tego uprawnienia).
 
-Kolejność blokad checkoutu: podsumowanie → koszyk → produkty w porządku UUID → magazyn w tym samym porządku. Rezerwacja i odblokowanie magazynu są operacjami domeny inventory. Anulowanie/wygaśnięcie: zamówienie → magazyn w porządku UUID. Przyszła płatność musi używać tej samej blokady zamówienia oraz sprawdzać termin, niezależnie od zadania w tle. Nie może opierać się jedynie na statusie ani odczytanej wcześniej dostępności.
+Kolejność blokad checkoutu: podsumowanie → koszyk → produkty w porządku UUID → magazyn w tym samym porządku. Rezerwacja i odblokowanie magazynu są operacjami domeny inventory. Anulowanie/wygaśnięcie oraz płatność: zamówienie → magazyn w porządku UUID. Płatność sprawdza termin także po uzyskaniu blokad magazynu, niezależnie od zadania w tle. Anulowanie/wygaśnięcie kończy oczekującą próbę płatności w tej samej transakcji.
 
 Migracja V6 dodaje checkout_quote, customer_order i order_item. Nie usuwa poprzednich danych. Wygasłe podsumowania pozostają w bazie; polityka ich sprzątania jest późniejszym zadaniem, bez usuwania podsumowań powiązanych z historią zamówień.

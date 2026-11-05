@@ -117,4 +117,4 @@ Błędy API i filtrów bezpieczeństwa mają format `application/problem+json` z
 - 409: konflikt danych, zajęty e-mail, niedozwolony reset.
 - 503: niedostępna poczta.
 
-Katalog i magazyn opisuje [osobny kontrakt](catalog-api.md), a koszyk klienta/gościa i scalanie po logowaniu — [API koszyka](cart-api.md). [API zamówień](order-api.md) obejmuje potwierdzenie ceny, rezerwację, anulowanie i dostęp gościa. Płatności pozostają kolejnym etapem. Nie ma publicznego „zapomniałem hasła” — zgodnie z zakresem reset inicjuje administrator.
+Katalog i magazyn opisuje [osobny kontrakt](catalog-api.md), a koszyk klienta/gościa i scalanie po logowaniu — [API koszyka](cart-api.md). [API zamówień](order-api.md) obejmuje potwierdzenie ceny, rezerwację, anulowanie i dostęp gościa. [Symulator płatności](payment-api.md) obsługuje próby i atomowe wydanie towaru. Nie ma publicznego „zapomniałem hasła” — zgodnie z zakresem reset inicjuje administrator.

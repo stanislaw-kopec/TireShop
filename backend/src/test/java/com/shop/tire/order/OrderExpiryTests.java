@@ -19,7 +19,7 @@ class OrderExpiryTests {
         var inventory = mock(InventoryService.class);
         var deadline = Instant.parse("2026-11-05T12:00:00Z");
         var clock = Clock.fixed(deadline.plusNanos(offsetNanos),ZoneOffset.UTC);
-        var service = new OrderService(repository,mock(CartService.class),mock(CatalogService.class),inventory,mock(AccountService.class),clock);
+        var service = new OrderService(repository,mock(CartService.class),mock(CatalogService.class),inventory,mock(AccountService.class),clock,mock(org.springframework.context.ApplicationEventPublisher.class));
         UUID id = UUID.randomUUID(); UUID productId = UUID.randomUUID();
         var product = new OrderSnapshot.Product(productId,"Brand","Model",205,55,16,Season.WINTER,null);
         var snapshot = new OrderSnapshot(List.of(new OrderSnapshot.Line(product,1,new BigDecimal("10.00"),new BigDecimal("10.00"))),

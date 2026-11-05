@@ -1,10 +1,10 @@
 # TireShop — wstępny projekt backendu i bazy
 
-Stan: projekt z 9 października, aktualizacja po wdrożeniu koszyka i zamówień 5 listopada 2026. Wymagania wiążące są w `AGENTS.md`. Dokument odróżnia bieżącą implementację od dalszego projektu. Obejmuje backend; Angular jest przyszłym klientem API.
+Stan: projekt z 9 października, aktualizacja po wdrożeniu symulatora płatności 5 listopada 2026. Wymagania wiążące są w `AGENTS.md`. Dokument odróżnia bieżącą implementację od dalszego projektu. Obejmuje backend; Angular jest przyszłym klientem API.
 
 Pierwszy etap obejmuje `app_account`, `account_address`, `account_action_token`, rejestrację, JWT Bearer, profil i adres, wyszukiwanie kont przez administratora, zaproszenia i reset haseł. JWT zastąpił sesje HTTP: historyczne V1/V2 pozostają, a V3 usuwa tabele Spring Session. Kontrakt: [backend-api.md](backend-api.md).
 
-Drugi etap (V4) dodaje `manufacturer`, `tire_product`, `inventory` i `inventory_change`: katalog publiczny i personelu, parametry produktu, ceny, dopuszczenie sprzedaży, dostawy, korekty oraz historię magazynu. Kontrakt: [catalog-api.md](catalog-api.md). V5 dodaje `shopping_cart` i `cart_item`: [cart-api.md](cart-api.md). V6 (5 listopada 2026) dodaje `checkout_quote`, `customer_order`, `order_item` i rezerwację 15 minut: [order-api.md](order-api.md). Bieżący schemat ma 12 tabel domenowych. Płatności, linki śledzenia i historia realizacji w diagramie pozostają dalszym projektem. Symbol CART odpowiada `shopping_cart`.
+Drugi etap (V4) dodaje `manufacturer`, `tire_product`, `inventory` i `inventory_change`: katalog publiczny i personelu, parametry produktu, ceny, dopuszczenie sprzedaży, dostawy, korekty oraz historię magazynu. Kontrakt: [catalog-api.md](catalog-api.md). V5 dodaje `shopping_cart` i `cart_item`: [cart-api.md](cart-api.md). V6 dodaje `checkout_quote`, `customer_order`, `order_item` i rezerwację 15 minut: [order-api.md](order-api.md). V7 dodaje `payment_attempt`, paid_at i wpisy SALE: [payment-api.md](payment-api.md). Bieżący schemat ma 13 tabel domenowych. Linki śledzenia i historia realizacji w diagramie pozostają dalszym projektem. Symbol CART odpowiada `shopping_cart`.
 
 ## Przyjęte decyzje
 
@@ -73,12 +73,12 @@ Typy wspólne: identyfikatory `uuid`, kwoty `numeric(12,2)`, czas `timestamptz` 
 | `shopping_cart` / cart | `id PK`, `account_id FK NULL UNIQUE`, `guest_token_hash NULL UNIQUE`, `expires_at NULL`, `merged_account_id FK NULL`, `created_at` | Konto albo skrót tokenu gościa (CHECK). Jeden koszyk konta. Wiersz gościa po scaleniu zachowuje odbiorcę dla idempotencji; dostęp ograniczony terminem. Blokada FOR UPDATE serializuje zmiany, przy scalaniu najpierw gość, potem konto. |
 | `cart_item` / cart | `cart_id FK`, `product_id FK`, `quantity` | Złożony PK(cart_id, product_id), quantity > 0. Cena odczytywana z katalogu; koszyk niczego nie rezerwuje. |
 | `checkout_quote` / order | `id PK`, `cart_id FK`, `account_id FK NULL`, `guest_token_hash NULL`, `access_expires_at NULL`, `expires_at`, `snapshot jsonb` | Podsumowanie ważne 15 minut, bez rezerwacji. Gość dostaje osobny losowy token zakupu ważny 24 h. Snapshot zawiera pozycje, ceny, sumy i kontakt/adres, sprawdzane ponownie przy potwierdzeniu. |
-| `customer_order` / order | `id PK`, `quote_id FK UNIQUE`, `checkout_key UNIQUE`, `account_id FK NULL`, `guest_token_hash NULL`, `access_expires_at NULL`, `status`, `delivery jsonb`, `currency`, `items_total_gross`, `shipping_gross`, `total_gross`, `created_at`, `reservation_expires_at`, `cancellation_reason NULL` | W V6 numer to TS-UUID. Konto XOR kontekst gościa; kopia kontaktu/adresu. Kwoty sum numeric(24,2). Blokada wiersza serializuje anulowanie/wygaśnięcie. Pola płatności/przesyłki zostaną dodane nowymi migracjami; nie są zaimplementowane. |
+| `customer_order` / order | `id PK`, `quote_id FK UNIQUE`, `checkout_key UNIQUE`, `account_id FK NULL`, `guest_token_hash NULL`, `access_expires_at NULL`, `status`, `delivery jsonb`, `currency`, `items_total_gross`, `shipping_gross`, `total_gross`, `created_at`, `reservation_expires_at`, `cancellation_reason NULL`, `paid_at NULL` | Numer TS-UUID. Konto XOR kontekst gościa; kopia kontaktu/adresu. Kwoty sum numeric(24,2). Blokada wiersza serializuje płatność/anulowanie/wygaśnięcie. paid_at w V7; przesyłka pozostaje dalszym projektem. |
 | `order_item` / order | `order_id FK`, `product_id FK`, `product_snapshot jsonb`, `quantity`, `unit_price_gross`, `line_total_gross` | Złożony PK(order_id, product_id), quantity > 0. Kopia nazwy producenta/modelu, rozmiaru, sezonu, zdjęcia. Cena numeric(12,2), suma numeric(24,2). FK nie zastępuje kopii. |
-| `payment_attempt` / payment | `id PK`, `order_id FK`, `status`, `amount_gross`, `currency`, `created_at`, `finished_at NULL`, `failure_code NULL` | Jedno zamówienie może mieć wiele prób, ale najwyżej jedną oczekującą i jedną udaną. Kwota z zamówienia, nie z przeglądarki. ID próby nie daje prawa zmiany wyniku. |
+| `payment_attempt` / payment | `id PK`, `order_id FK`, `request_key`, `status`, `amount_gross`, `currency`, `created_at`, `finished_at NULL`, `reason NULL` | V7. UNIQUE(order_id, request_key) zapewnia ponowienia. Jedno zamówienie może mieć wiele prób, ale najwyżej jedną oczekującą i jedną udaną. Kwota numeric(24,2) z zamówienia. ID próby nie daje prawa zmiany wyniku. |
 | `order_access_token` / order | `id PK`, `order_id FK`, `token_hash UNIQUE`, `created_at`, `expires_at`, `revoked_at NULL` | Wielokrotny odczyt statusu gościa; to inny token niż jednorazowy reset hasła. Pierwszy link wygasa 90 dni po zapłacie; odnowiony link wygasa 90 dni od swojego wydania. Nowy link wysyłany wyłącznie na e-mail zamówienia. |
 | `order_status_history` / order | `id PK`, `order_id FK`, `from_status NULL`, `to_status`, `changed_by FK NULL`, `changed_at`, `reason NULL` | Historia zmian; NULL autora oznacza system, np. płatność lub wygaśnięcie. Tworzona razem ze zmianą statusu. |
-| `inventory_change` / inventory | `id PK` (= operationId), `product_id FK`, `actor_account_id FK`, `type`, `quantity_delta`, `reason`, `on_hand_after`, `reserved_after`, `created_at` | Obecnie przyjęcia RECEIPT i korekty CORRECTION, wymagany autor-pracownik. Idempotencja i snapshot stanu po operacji. Docelowo nowa migracja doda wydanie po zapłacie, `order_item_id FK NULL UNIQUE` i opcjonalnego autora-system; tych pól/reguł nie ma jeszcze w V4. Rezerwacja nie jest wydaniem. |
+| `inventory_change` / inventory | `id PK` (= operationId), `product_id FK`, `actor_account_id FK NULL`, `order_id NULL`, `type`, `quantity_delta`, `reason`, `on_hand_after`, `reserved_after`, `created_at` | RECEIPT/CORRECTION mają autora-pracownika i order_id null. SALE (V7) ma autora-system (null) i złożony FK(order_id, product_id) do order_item. UNIQUE tej pary chroni jednorazowe wydanie. Rezerwacja nie jest wydaniem. |
 
 Adres w zamówieniu obejmuje te same pola co `account_address`; w JPA można użyć `@Embeddable`. Nie ma FK do bieżącego adresu konta. Dodatkowych nazwanych adresów i osobnej tabeli przesyłek nie potrzeba przy jednym adresie i jednej przesyłce na zamówienie.
 
@@ -97,7 +97,7 @@ Każde zamówienie powstaje od razu z jedną rezerwacją wszystkich jego niezmie
 
 Płatność i zwolnienie stosują tę samą kolejność blokad: zamówienie, potem rekordy magazynowe w rosnącej kolejności ID produktu. Wszystkie operacje obejmujące wiele produktów stosują tę samą kolejność. Edycja ceny i zakup muszą używać wspólnej kontroli współbieżności produktu. `@Version` samo w sobie nie zastępuje przemyślanej transakcji i obsługi konfliktu.
 
-To projekt algorytmu, nie obietnica poprawności bez testów: potrzebny test na PostgreSQL, w którym dwóch kupujących rywalizuje o ostatnie sztuki, oraz test równoczesnego sukcesu płatności i wygaśnięcia.
+Implementację V6/V7 sprawdzają testy na PostgreSQL: rywalizacja kupujących o ostatnie sztuki, równoczesne wyniki płatności, wyścigi z anulowaniem/wygaśnięciem oraz rollback po błędzie zapisu. Testy z kontrolowanym Clock sprawdzają dokładną granicę terminu i jego upływ podczas oczekiwania na blokady magazynu.
 
 ## Ograniczenia i indeksy
 
@@ -159,10 +159,10 @@ Jeśli akceptujemy outbox: zapis zadania wiadomości razem z zatwierdzeniem zam�
 
 1. Migracje Flyway, globalne błędy, szkic API i testy PostgreSQL. Nie generować całego schematu bez uzgodnienia otwartych decyzji. Fundament i migracje kont są zaimplementowane; V3 usuwa historyczne sesje.
 2. Konta, logowanie JWT, role, właściciel zasobu, zaproszenia/reset. Frontend nie jest potrzebny do testów tego etapu.
-3. Katalog i podstawowy magazyn wraz z uprawnieniami pracownika/admina — zaimplementowane w V4. Rezerwacje i wydania sprzedażowe pozostają przy etapach zamówień/płatności.
+3. Katalog i podstawowy magazyn wraz z uprawnieniami pracownika/admina — zaimplementowane w V4. Rezerwacje dodaje V6, wydania sprzedażowe V7.
 4. Koszyk gościa/klienta i bezpieczne łączenie po zalogowaniu — zaimplementowane w V5.
 5. Zamówienia, snapshoty, dostawa, atomowa rezerwacja i wygaśnięcie — zaimplementowane w V6. To samo quoteId + checkoutKey zwraca to samo zamówienie; zmieniony klucz/podsumowanie daje konflikt. Token zakupu gościa jest niezależny od koszyka.
-6. Symulator płatności, linki gościa i wiadomości. Testy wyścigów oraz duplikatów.
+6. Symulator płatności i wydania towaru — zaimplementowane w V7. Testy wyścigów, duplikatów, uprawnień i rollbacku. Linki gościa i wiadomości pozostają do implementacji.
 7. Realizacja zamówień przez pracownika, historia statusów, numer przesyłki i uzupełnienie testów uprawnień.
 
 Nie odkładamy bezpieczeństwa na koniec: późniejsza zmiana właściciela koszyka, sposobu identyfikacji gościa i dostępu do zamówienia wymuszałaby przebudowę tych funkcji. Nie implementujemy teraz Angulara, realnych płatności, zwrotów, podatkowego modułu faktur, wielu magazynów ani integracji kuriera.

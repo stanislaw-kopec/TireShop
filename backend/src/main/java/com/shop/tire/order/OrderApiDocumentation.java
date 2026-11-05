@@ -26,7 +26,13 @@ class OrderApiDocumentation {
                         operation.getResponses().addApiResponse("403",error("Wymagana rola CUSTOMER"));
                     }
                     if (method.name().equals("POST")) operation.getResponses().addApiResponse("409",error("Zmiana podsumowania, brak towaru, wykorzystany klucz lub niedozwolony stan"));
-                    if (path.endsWith("/preview")) operation.setDescription("Zapisuje podsumowanie ważne 15 minut, bez zamówienia i bez rezerwacji. Brak adresu/e-maila dla konta używa profilu. Gość musi podać oba i otrzymuje osobny purchaseToken ważny 24 godziny.");
+                    if (path.contains("/payments")) {
+                        operation.setDescription(path.endsWith("/simulation-result")
+                                ? "SYMULACJA: wybierz SUCCEEDED, FAILED lub CANCELLED. Wynik jest ostateczny; identyczne ponowienie jest bezpieczne. Sukces zatwierdza sprzedaż tylko przed terminem rezerwacji. Nie przesyłaj danych kart."
+                                : "SYMULACJA: kwota pochodzi z zamówienia. POST z requestKey tworzy próbę (201 i Location); ten sam klucz w tym zamówieniu zwraca tę samą próbę. Maksymalnie jedna próba PENDING. GET listy: page od 0, size 1–100, kolejność createdAt malejąco i id rosnąco.");
+                        if (method.name().equals("POST")) operation.getResponses().addApiResponse("409",error("Zamówienie nie pozwala na płatność, inna próba oczekuje lub wynik jest sprzeczny. Wygaśnięcie zwalnia rezerwację mimo odpowiedzi 409."));
+                    }
+                    else if (path.endsWith("/preview")) operation.setDescription("Zapisuje podsumowanie ważne 15 minut, bez zamówienia i bez rezerwacji. Brak adresu/e-maila dla konta używa profilu. Gość musi podać oba i otrzymuje osobny purchaseToken ważny 24 godziny.");
                     else if (path.endsWith("/cancellation")) operation.setDescription("Anuluje wyłącznie nieopłacone zamówienie. Ponowienie nie zwalnia sztuk drugi raz. Po terminie powodem jest EXPIRED.");
                     else if (method.name().equals("POST")) operation.setDescription("Potwierdza quoteId z unikalnym checkoutKey. Rezerwacja trwa 15 minut od utworzenia. Ponowienie identycznego żądania zwraca to samo zamówienie (201 i ten sam Location), bez dodatkowej rezerwacji. Przy zmianie cen/koszyka pobierz i potwierdź nowe podsumowanie.");
                 });

@@ -24,8 +24,11 @@ public class OrderService {
     private final InventoryService inventory;
     private final AccountService accounts;
     private final Clock clock;
-    public OrderService(OrderRepository orders, CartService carts, CatalogService catalog, InventoryService inventory, AccountService accounts, Clock clock) {
+    private final org.springframework.context.ApplicationEventPublisher events;
+    public OrderService(OrderRepository orders, CartService carts, CatalogService catalog, InventoryService inventory, AccountService accounts, Clock clock,
+                        org.springframework.context.ApplicationEventPublisher events) {
         this.orders=orders; this.carts=carts; this.catalog=catalog; this.inventory=inventory; this.accounts=accounts; this.clock=clock;
+        this.events=events;
     }
     @PreAuthorize("hasRole('CUSTOMER') and #accountId == authentication.principal.accountId()")
     public QuoteResponse accountPreview(UUID accountId, OrderRequests.Preview input) {
@@ -92,6 +95,24 @@ public class OrderService {
     private void release(OrderRepository.Entry order, String reason) {
         inventory.release(order.snapshot().quantities());
         orders.cancel(order.id(),reason);
+        events.publishEvent(new OrderCancelled(order.id(),reason,now()));
+    }
+
+    public record PaymentOrder(UUID id, OrderStatus status, java.math.BigDecimal amountGross, String currency, Instant expiresAt) {}
+    @PreAuthorize("#accountId == null or (hasRole('CUSTOMER') and #accountId == authentication.principal.accountId())")
+    @Transactional(propagation=org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public PaymentOrder paymentOrder(UUID accountId, String token, UUID id) {
+        var order = owned(accountId,token,id,true);
+        return new PaymentOrder(id,order.status(),order.snapshot().totalGross(),order.snapshot().currency(),order.expiresAt());
+    }
+    @Transactional(propagation=org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public boolean confirmPayment(UUID id) {
+        var order = orders.get(id,true).orElseThrow(OrderService::notFound);
+        if (order.status() != OrderStatus.PENDING_PAYMENT) return false;
+        var paidAt = inventory.sellReserved(id,order.snapshot().quantities(),order.expiresAt());
+        if (paidAt == null) { release(order,"EXPIRED"); return false; }
+        orders.paid(id,paidAt);
+        return true;
     }
     public void expire(UUID id) {
         var order = orders.get(id,true);

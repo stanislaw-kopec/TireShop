@@ -234,7 +234,9 @@ Trzeci etap: koszyk CUSTOMER i gościa, aktualne ceny, podsumowanie dostawy oraz
 
 Czwarty etap: podsumowanie zakupu, zamówienie z kopią danych, rezerwacja na 15 minut, historia/szczegóły klienta, dostęp gościa przez token zakupu, anulowanie nieopłaconych i zadanie zwalniające wygasłe rezerwacje. V6 dodaje `checkout_quote`, `customer_order`, `order_item`. Zamówienie i rezerwacja wszystkich pozycji powstają atomowo; koszyk jest czyszczony dopiero w tej samej udanej transakcji. Kontrakt: `docs/order-api.md`.
 
-Płatności, wydania po zapłacie, linki śledzenia i realizacja pracownicza pozostają do implementacji. Przyszła płatność musi blokować ten sam wiersz zamówienia co anulowanie/wygaśnięcie, sprawdzać termin także bez działania zadania w tle i nie może przyjąć sukcesu dokładnie w chwili wygaśnięcia. Nowe domeny używają błędów niezależnych od HTTP; porządkowanie istniejącego `ApiException` oraz request ID są nadal osobnymi zadaniami.
+Piąty etap: backend symulatora płatności klienta/gościa, historia prób, sukces/odrzucenie/anulowanie, ponowienia oraz atomowe wydanie zarezerwowanego towaru. V7 dodaje payment_attempt, paid_at i systemowe wpisy SALE powiązane z pozycją zamówienia. Płatność blokuje ten sam wiersz zamówienia co anulowanie/wygaśnięcie i sprawdza termin ponownie po uzyskaniu blokad magazynu. Jedna próba PENDING na zamówienie; requestKey zapewnia bezpieczne ponowienie utworzenia. Anulowanie zamówienia zamyka oczekującą próbę w tej samej transakcji. Kontrakt: `docs/payment-api.md`.
+
+Linki śledzenia, wiadomości po zapłacie, ekran Angulara i realizacja pracownicza pozostają do implementacji. Nowe domeny używają błędów niezależnych od HTTP; porządkowanie istniejącego `ApiException` oraz request ID są nadal osobnymi zadaniami.
 
 ## Poza zakresem MVP
 

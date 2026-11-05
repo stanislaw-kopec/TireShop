@@ -26,7 +26,9 @@ Domyślny profil `local` uruchamia PostgreSQL 17 oraz Mailpit (lokalny podgląd 
 - OpenAPI: http://localhost:8080/v3/api-docs
 - Podgląd lokalnych zaproszeń i resetów haseł: http://localhost:8025
 
-Backend obejmuje konta, logowanie JWT, adresy, zaproszenia pracowników, resetowanie haseł, katalog, magazyn, koszyk i zamówienia z 15-minutową rezerwacją. Pracownik tworzy/edytuje produkty i zapisuje dostawy lub korekty, administrator ustala ceny i dopuszcza sprzedaż. Publiczny katalog ma filtry, paginację i sortowanie po cenie. Płatności i realizacja wysyłki są kolejnymi etapami. Backend nie udostępnia strony pod `/`.
+Backend obejmuje konta, logowanie JWT, adresy, zaproszenia pracowników, resetowanie haseł, katalog, magazyn, koszyk, zamówienia z 15-minutową rezerwacją i symulator płatności. Pracownik tworzy/edytuje produkty i zapisuje dostawy lub korekty, administrator ustala ceny i dopuszcza sprzedaż. Publiczny katalog ma filtry, paginację i sortowanie po cenie. Linki śledzenia, wiadomości po zapłacie i realizacja wysyłki są kolejnymi etapami. Backend nie udostępnia strony pod `/`.
+
+V7 dodaje [API symulatora płatności](docs/payment-api.md): próby dla klienta i gościa, wybór sukcesu/odrzucenia/anulowania oraz bezpieczne ponowienia. Sukces ustawia PAID i atomowo wydaje towar z rezerwacji, zapisując SALE w historii magazynu. Kwota pochodzi z zamówienia; próby nie przedłużają 15 minut. Nie ma prawdziwych płatności ani formularza kart. Migracja uruchamia się standardowo przez Flyway; nie wymaga nowych zmiennych środowiska.
 
 V5 dodaje koszyki i ich pozycje. [API koszyka](docs/cart-api.md) opisuje token gościa w `X-Cart-Token` (dla przyszłego Angulara: sessionStorage, bez cookie), podsumowanie cen i dostawy oraz scalanie po zalogowaniu. Konflikt dostępności zachowuje oba koszyki. Testy obejmują także prywatność koszyków, dostawę dla 3/4 sztuk, aktualizację cen, wygasanie tokenu i równoczesne ponowienia scalania.
 
