@@ -56,4 +56,4 @@ Pracownik i administrator nie mogą ręcznie ustawiać PAID ani wykonywać wydan
 
 V7 tworzy payment_attempt, dodaje paid_at i powiązanie SALE z pozycją zamówienia. Unikalne indeksy pozwalają na najwyżej jedną próbę PENDING i jedną SUCCEEDED na zamówienie; UNIQUE(order_id, product_id) chroni pojedyncze wydanie pozycji.
 
-V8 dodaje [linki śledzenia gościa i e-mail po zapłacie](tracking-api.md). Gość pobiera pierwszy link przez GET /api/guest/orders/{id}/tracking-link z X-Purchase-Token; klient nadal korzysta z własnego zamówienia. Realizacja zamówień przez pracownika i ekran Angulara pozostają następnymi etapami.
+V8 dodaje [linki śledzenia gościa i e-mail po zapłacie](tracking-api.md). Gość pobiera pierwszy link przez GET /api/guest/orders/{id}/tracking-link z X-Purchase-Token; klient nadal korzysta z własnego zamówienia. V9 dodaje [realizację zamówień przez pracownika](fulfillment-api.md). Ekran Angulara pozostaje do implementacji.

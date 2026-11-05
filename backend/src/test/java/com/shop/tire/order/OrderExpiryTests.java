@@ -25,7 +25,7 @@ class OrderExpiryTests {
         var snapshot = new OrderSnapshot(List.of(new OrderSnapshot.Line(product,1,new BigDecimal("10.00"),new BigDecimal("10.00"))),
                 null,new BigDecimal("10.00"),new BigDecimal("20.00"),new BigDecimal("30.00"),"PLN");
         when(repository.get(id,true)).thenReturn(Optional.of(new OrderRepository.Entry(id,UUID.randomUUID(),UUID.randomUUID(),UUID.randomUUID(),
-                null,null,OrderStatus.PENDING_PAYMENT,deadline.minusSeconds(900),deadline,null,snapshot)));
+                null,null,OrderStatus.PENDING_PAYMENT,deadline.minusSeconds(900),deadline,null,snapshot,null)));
         service.expire(id);
         verify(inventory,times(releases)).release(Map.of(productId,1));
         verify(repository,times(releases)).cancel(id,"EXPIRED");

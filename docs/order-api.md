@@ -1,6 +1,6 @@
 # Zamówienia, podsumowanie i rezerwacja
 
-Etap V6: podsumowanie zakupu, utworzenie zamówienia, rezerwacja 15 minut, historia własnych zamówień, anulowanie nieopłaconych i automatyczne wygaśnięcie. V7 dodaje [symulator płatności](payment-api.md) i wydanie towaru po zapłacie. V8 dodaje [linki śledzenia gościa oraz pocztę](tracking-api.md). Panel realizacji pracownika pozostaje do wdrożenia.
+Etap V6: podsumowanie zakupu, utworzenie zamówienia, rezerwacja 15 minut, historia własnych zamówień, anulowanie nieopłaconych i automatyczne wygaśnięcie. V7 dodaje [symulator płatności](payment-api.md) i wydanie towaru po zapłacie. V8 dodaje [linki śledzenia gościa oraz pocztę](tracking-api.md). V9 dodaje [realizację przez pracownika](fulfillment-api.md) oraz trackingNumber w historii i szczegółach zamówienia (null przed wysyłką).
 
 ## Ścieżka API
 

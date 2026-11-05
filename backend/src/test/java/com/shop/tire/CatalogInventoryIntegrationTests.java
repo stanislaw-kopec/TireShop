@@ -52,6 +52,7 @@ class CatalogInventoryIntegrationTests {
     @Autowired PasswordEncoder encoder;
     @Autowired com.shop.tire.order.OrderService orders;
     @Autowired com.shop.tire.order.OrderMailDelivery delivery;
+    @Autowired java.time.Clock clock;
     @MockitoBean JavaMailSender mail;
     private HttpClient http;
     private String employee;
@@ -958,13 +959,16 @@ class CatalogInventoryIntegrationTests {
         problem(headerCall(null,"X-Purchase-Token",raw,"POST","/api/guest/orders/"+guest.id()+"/cancellation",null),404,"ORDER_NOT_FOUND");
         problem(headerCall(null,"X-Purchase-Token",raw,"POST","/api/guest/orders/"+guest.id()+"/payments",Map.of("requestKey",UUID.randomUUID())),404,"ORDER_NOT_FOUND");
         problem(call(customer,"GET",path,null),404,"ORDER_NOT_FOUND");
-        jdbc.update("update customer_order set access_expires_at=now()-interval '1 second' where id=?",guest.id());
+        jdbc.update("update customer_order set access_expires_at=? where id=?",java.sql.Timestamp.from(clock.instant().minusSeconds(1)),guest.id());
         problem(headerCall(null,"X-Purchase-Token",guest.purchase(),"GET",path,null),404,"ORDER_NOT_FOUND");
         expect(track(raw),200);
-        jdbc.update("update order_access_token set screen_expires_at=now()-interval '1 second' where order_id=?",guest.id());
+        jdbc.update("update order_access_token set screen_expires_at=? where order_id=?",java.sql.Timestamp.from(clock.instant().minusSeconds(1)),guest.id());
         delivery.cleanExpiredSecrets();
         assertThat(jdbc.queryForObject("select screen_ciphertext from order_access_token where order_id=?",byte[].class,guest.id())).isNull();
-        jdbc.update("update order_access_token set created_at=now()-interval '91 days',expires_at=now() where order_id=?",guest.id());
+        // Eligibility uses the application Clock, which need not match the Docker VM's clock.
+        jdbc.update("update order_access_token set created_at=?,expires_at=? where order_id=?",
+                java.sql.Timestamp.from(clock.instant().minus(Duration.ofDays(91))),
+                java.sql.Timestamp.from(clock.instant().minusSeconds(1)),guest.id());
         problem(track(raw),404,"TRACKING_NOT_FOUND");
     }
 
@@ -1022,7 +1026,7 @@ class CatalogInventoryIntegrationTests {
         assertThat(jdbc.queryForObject("select status from order_email_outbox where id=?",String.class,job)).isEqualTo("PENDING");
         assertThat(delivery.sendNext()).isFalse();
         org.mockito.Mockito.doNothing().when(mail).send(org.mockito.ArgumentMatchers.any(org.springframework.mail.SimpleMailMessage.class));
-        jdbc.update("update order_email_outbox set next_attempt_at=now() where id=?",job);
+        jdbc.update("update order_email_outbox set next_attempt_at=? where id=?",java.sql.Timestamp.from(clock.instant().minusSeconds(1)),job);
         var one=CompletableFuture.supplyAsync(()->delivery.sendNext());
         var two=CompletableFuture.supplyAsync(()->delivery.sendNext());
         assertThat(List.of(one.get(20,TimeUnit.SECONDS),two.get(20,TimeUnit.SECONDS))).containsExactlyInAnyOrder(true,false);
@@ -1040,7 +1044,7 @@ class CatalogInventoryIntegrationTests {
         org.mockito.Mockito.doThrow(new org.springframework.mail.MailSendException("SMTP unavailable"))
                 .when(mail).send(org.mockito.ArgumentMatchers.any(org.springframework.mail.SimpleMailMessage.class));
         for (int i=0;i<5;i++) {
-            jdbc.update("update order_email_outbox set next_attempt_at=now() where id=?",job);
+            jdbc.update("update order_email_outbox set next_attempt_at=? where id=?",java.sql.Timestamp.from(clock.instant().minusSeconds(1)),job);
             assertThat(delivery.sendNext()).isTrue();
         }
         assertThat(jdbc.queryForObject("select status from order_email_outbox where id=?",String.class,job)).isEqualTo("FAILED");
@@ -1103,6 +1107,181 @@ class CatalogInventoryIntegrationTests {
     private String trackingToken(JsonNode link) { return link.get("trackingUrl").asText().split("#token=")[1]; }
     private HttpResponse<String> track(String token) throws Exception {
         return headerCall(null,"X-Tracking-Token",token,"GET","/api/order-tracking",null);
+    }
+
+    @Test
+    void employeeFulfillsPaidCustomerOrderAndCustomerSeesTrackingNumber() throws Exception {
+        String product=offer(details(brand(),"Fulfillment"),"25.00",5);
+        var order=createCustomerOrder(product,2);
+        String id=order.get("id").asText();
+        payCustomerOrder(id);
+        String path="/api/employee/orders/"+id;
+        var processing=statusChange("PROCESSING",null);
+        var started=expect(call(employee,"PATCH",path+"/status",processing),200);
+        assertThat(started.get("status").asText()).isEqualTo("PROCESSING");
+        var shipped=expect(call(employee,"PATCH",path+"/status",statusChange("SHIPPED","PARCEL-123")),200);
+        assertThat(shipped.get("trackingNumber").asText()).isEqualTo("PARCEL-123");
+        var details=get(employee,path);
+        assertThat(details.at("/snapshot/delivery/email").asText()).isEqualTo("order@example.test");
+        assertThat(details.at("/snapshot/items")).isEqualTo(order.at("/snapshot/items"));
+        assertThat(details.toString()).doesNotContain("guestHash","token","password","accountId");
+        assertThat(get(customer,"/api/orders/"+id).get("trackingNumber").asText()).isEqualTo("PARCEL-123");
+        assertThat(get(customer,"/api/orders").at("/items/0/trackingNumber").asText()).isEqualTo("PARCEL-123");
+        expect(call(employee,"PATCH",path+"/status",statusChange("DELIVERED",null)),200);
+        assertThat(expect(call(employee,"PATCH",path+"/status",processing),200)).isEqualTo(started);
+        assertThat(get(employee,path).get("status").asText()).isEqualTo("DELIVERED");
+        assertThat(get(employee,stock(product)).get("onHand").asInt()).isEqualTo(3);
+        assertThat(get(employee,stock(product)).get("reserved").asInt()).isZero();
+        assertThat(get(employee,stock(product)+"/movements").get("totalElements").asInt()).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select count(*) from order_fulfillment_operation where order_id=?",Integer.class,UUID.fromString(id))).isEqualTo(3);
+    }
+
+    @Test
+    void guestTrackingFollowsShipmentCorrectionsAndDelivery() throws Exception {
+        var guest=guestPurchase();
+        pay(guest);
+        String token=trackingToken(expect(headerCall(null,"X-Purchase-Token",guest.purchase(),"GET","/api/guest/orders/"+guest.id()+"/tracking-link",null),200));
+        String path="/api/employee/orders/"+guest.id();
+        expect(call(employee,"PATCH",path+"/status",statusChange("PROCESSING",null)),200);
+        expect(call(employee,"PATCH",path+"/status",statusChange("SHIPPED","OLD-123")),200);
+        var correction=Map.of("operationId",UUID.randomUUID(),"trackingNumber","NEW-456","expectedTrackingNumber","OLD-123");
+        var corrected=expect(call(employee,"PUT",path+"/shipment",correction),200);
+        assertThat(expect(track(token),200).get("trackingNumber").asText()).isEqualTo("NEW-456");
+        problem(call(employee,"PUT",path+"/shipment",Map.of("operationId",UUID.randomUUID(),"trackingNumber","STALE-123","expectedTrackingNumber","OLD-123")),409,"SHIPMENT_CHANGED");
+        expect(call(employee,"PATCH",path+"/status",statusChange("DELIVERED",null)),200);
+        assertThat(expect(track(token),200).get("status").asText()).isEqualTo("DELIVERED");
+        assertThat(expect(call(employee,"PUT",path+"/shipment",correction),200)).isEqualTo(corrected);
+        problem(call(employee,"PUT",path+"/shipment",Map.of("operationId",UUID.randomUUID(),"trackingNumber","TOO-LATE","expectedTrackingNumber","NEW-456")),409,"SHIPMENT_NOT_EDITABLE");
+        pay(guest);
+        assertThat(expect(track(token),200).get("status").asText()).isEqualTo("DELIVERED");
+        assertThat(jdbc.queryForObject("select count(*) from order_access_token where order_id=?",Integer.class,guest.id())).isEqualTo(1);
+    }
+
+    @Test
+    void fulfillmentRejectsSkippedStagesUnpaidCancelledAndForgedFields() throws Exception {
+        String product=offer(details(brand(),"Fulfillment validation"),"25.00",8);
+        var order=createCustomerOrder(product,2);
+        String id=order.get("id").asText();
+        String path="/api/employee/orders/"+id;
+        problem(call(employee,"PATCH",path+"/status",statusChange("PROCESSING",null)),409,"ORDER_TRANSITION_NOT_ALLOWED");
+        problem(call(employee,"PUT",path+"/shipment",Map.of("operationId",UUID.randomUUID(),"trackingNumber","NEW","expectedTrackingNumber","OLD")),409,"SHIPMENT_NOT_EDITABLE");
+        for (String target:List.of("PAID","CANCELLED","PENDING_PAYMENT"))
+            problem(call(employee,"PATCH",path+"/status",statusChange(target,null)),400,"INVALID_REQUEST");
+        var forged=new HashMap<>(statusChange("PROCESSING",null)); forged.put("actorAccountId",UUID.randomUUID());
+        problem(call(employee,"PATCH",path+"/status",forged),400,"INVALID_REQUEST");
+        payCustomerOrder(id);
+        problem(call(employee,"PATCH",path+"/status",statusChange("DELIVERED",null)),409,"ORDER_TRANSITION_NOT_ALLOWED");
+        problem(call(employee,"PATCH",path+"/status",statusChange("SHIPPED","PARCEL")),409,"ORDER_TRANSITION_NOT_ALLOWED");
+        problem(call(employee,"PATCH",path+"/status",statusChange("PROCESSING","PARCEL")),400,"TRACKING_NUMBER_REQUIRED");
+        expect(call(employee,"PATCH",path+"/status",statusChange("PROCESSING",null)),200);
+        problem(call(employee,"PATCH",path+"/status",statusChange("SHIPPED",null)),400,"TRACKING_NUMBER_REQUIRED");
+        problem(call(employee,"PATCH",path+"/status",statusChange("SHIPPED","  ")),400,"VALIDATION_FAILED");
+        problem(call(employee,"PATCH",path+"/status",statusChange("SHIPPED","X".repeat(101))),400,"VALIDATION_FAILED");
+        problem(call(employee,"PATCH",path+"/status",statusChange("SHIPPED","<script>")),400,"VALIDATION_FAILED");
+        var cancelled=createCustomerOrder(product,1);
+        String cancelledId=cancelled.get("id").asText();
+        expect(call(customer,"POST","/api/orders/"+cancelledId+"/cancellation",null),200);
+        problem(call(employee,"PATCH","/api/employee/orders/"+cancelledId+"/status",statusChange("PROCESSING",null)),409,"ORDER_TRANSITION_NOT_ALLOWED");
+    }
+
+    @Test
+    void employeeOrdersKeepRolesPaginationAndPrivateResourcesSeparate() throws Exception {
+        String product=offer(details(brand(),"Employee access"),"25.00",5);
+        var order=createCustomerOrder(product,2);
+        String id=order.get("id").asText();
+        String path="/api/employee/orders/"+id;
+        problem(call(null,"GET","/api/employee/orders",null),401,"AUTHENTICATION_REQUIRED");
+        for (String token:List.of(admin,customer)) {
+            problem(call(token,"GET","/api/employee/orders",null),403,"ACCESS_DENIED");
+            problem(call(token,"GET",path,null),403,"ACCESS_DENIED");
+            problem(call(token,"PATCH",path+"/status",statusChange("PROCESSING",null)),403,"ACCESS_DENIED");
+            problem(call(token,"PUT",path+"/shipment",Map.of("operationId",UUID.randomUUID(),"trackingNumber","NEW","expectedTrackingNumber","OLD")),403,"ACCESS_DENIED");
+        }
+        problem(call(employee,"GET","/api/employee/orders/"+UUID.randomUUID(),null),404,"ORDER_NOT_FOUND");
+        problem(call(employee,"GET","/api/employee/orders?size=101",null),400,"VALIDATION_FAILED");
+        problem(call(employee,"GET","/api/employee/orders?page=-1",null),400,"VALIDATION_FAILED");
+        problem(call(employee,"GET","/api/employee/orders?status=BAD",null),400,"INVALID_PARAMETER");
+        problem(call(loginFixture("CUSTOMER"),"GET","/api/orders/"+id,null),404,"ORDER_NOT_FOUND");
+        var api=get(null,"/v3/api-docs");
+        assertThat(api.at("/paths/~1api~1employee~1orders~1{id}~1status/patch/security/0/bearerAuth").isArray()).isTrue();
+    }
+
+    @Test
+    void concurrentFulfillmentRetriesAndCorrectionsDoNotDuplicateOrOverwrite() throws Exception {
+        String product=offer(details(brand(),"Concurrent fulfillment"),"25.00",5);
+        String id=createCustomerOrder(product,2).get("id").asText();
+        payCustomerOrder(id);
+        String path="/api/employee/orders/"+id;
+        var input=statusChange("PROCESSING",null);
+        var results=parallel(List.of(request(employee,"PATCH",path+"/status",input),request(employee,"PATCH",path+"/status",input)));
+        var first=expect(results.getFirst(),200);
+        assertThat(expect(results.getLast(),200)).isEqualTo(first);
+        var changed=new HashMap<>(input); changed.put("status","DELIVERED");
+        problem(call(employee,"PATCH",path+"/status",changed),409,"FULFILLMENT_OPERATION_REUSED");
+        problem(call(loginFixture("EMPLOYEE"),"PATCH",path+"/status",input),409,"FULFILLMENT_OPERATION_REUSED");
+        results=parallel(List.of(request(employee,"PATCH",path+"/status",statusChange("SHIPPED","ONE")),
+                request(employee,"PATCH",path+"/status",statusChange("SHIPPED","TWO"))));
+        assertThat(results.stream().map(HttpResponse::statusCode).toList()).containsExactlyInAnyOrder(200,409);
+        String original=get(employee,path).get("trackingNumber").asText();
+        results=parallel(List.of(
+                request(employee,"PUT",path+"/shipment",Map.of("operationId",UUID.randomUUID(),"expectedTrackingNumber",original,"trackingNumber","THREE")),
+                request(employee,"PUT",path+"/shipment",Map.of("operationId",UUID.randomUUID(),"expectedTrackingNumber",original,"trackingNumber","FOUR"))));
+        assertThat(results.stream().map(HttpResponse::statusCode).toList()).containsExactlyInAnyOrder(200,409);
+        assertThat(get(employee,path).get("trackingNumber").asText()).isIn("THREE","FOUR");
+        assertThat(jdbc.queryForObject("select count(*) from order_fulfillment_operation where order_id=?",Integer.class,UUID.fromString(id))).isEqualTo(3);
+    }
+
+    @Test
+    void fulfillmentWriteFailureRollsBackStatusAndShipmentTogether() throws Exception {
+        String product=offer(details(brand(),"Fulfillment rollback"),"25.00",5);
+        String id=createCustomerOrder(product,2).get("id").asText();
+        payCustomerOrder(id);
+        String path="/api/employee/orders/"+id;
+        expect(call(employee,"PATCH",path+"/status",statusChange("PROCESSING",null)),200);
+        var input=statusChange("SHIPPED","PARCEL");
+        UUID key=(UUID)input.get("operationId");
+        jdbc.execute("ALTER TABLE order_fulfillment_operation ADD CONSTRAINT test_fulfillment_failure CHECK (id <> '"+key+"'::uuid)");
+        try {
+            problem(call(employee,"PATCH",path+"/status",input),409,"DATA_CONFLICT");
+            var state=get(employee,path);
+            assertThat(state.get("status").asText()).isEqualTo("PROCESSING");
+            assertThat(state.get("trackingNumber").isNull()).isTrue();
+            assertThat(jdbc.queryForObject("select count(*) from order_fulfillment_operation where id=?",Integer.class,key)).isZero();
+        } finally {
+            jdbc.execute("ALTER TABLE order_fulfillment_operation DROP CONSTRAINT test_fulfillment_failure");
+        }
+        expect(call(employee,"PATCH",path+"/status",input),200);
+    }
+
+    @Test
+    void employeeListUsesStablePagesAndEffectiveExpiredStatusWithoutMutating() throws Exception {
+        String product=offer(details(brand(),"Employee pages"),"25.00",5);
+        String first=createCustomerOrder(product,1).get("id").asText();
+        String second=createCustomerOrder(product,1).get("id").asText();
+        for (String id:List.of(first,second))
+            jdbc.update("update customer_order set created_at='2090-01-01T00:00:00Z',reservation_expires_at='2090-01-01T00:15:00Z' where id=?",UUID.fromString(id));
+        var sorted=List.of(first,second).stream().sorted().toList();
+        assertThat(get(employee,"/api/employee/orders?size=1&page=0").at("/items/0/id").asText()).isEqualTo(sorted.getFirst());
+        assertThat(get(employee,"/api/employee/orders?size=1&page=1").at("/items/0/id").asText()).isEqualTo(sorted.getLast());
+        assertThat(get(employee,"/api/employee/orders?size=1").at("/items/0").toString()).doesNotContain("delivery","snapshot","email");
+        jdbc.update("update customer_order set created_at=now()-interval '16 minutes',reservation_expires_at=now()-interval '1 minute' where id=?",UUID.fromString(first));
+        var cancelled=get(employee,"/api/employee/orders?status=CANCELLED&size=100");
+        assertThat(ids(cancelled)).contains(first);
+        for (var item:cancelled.get("items")) assertThat(item.get("status").asText()).isEqualTo("CANCELLED");
+        assertThat(get(employee,"/api/employee/orders/"+first).get("cancellationReason").asText()).isEqualTo("EXPIRED");
+        assertThat(jdbc.queryForObject("select status from customer_order where id=?",String.class,UUID.fromString(first))).isEqualTo("PENDING_PAYMENT");
+    }
+
+    private Map<String,Object> statusChange(String status, String tracking) {
+        var input=new HashMap<String,Object>();
+        input.put("operationId",UUID.randomUUID()); input.put("status",status);
+        if (tracking!=null) input.put("trackingNumber",tracking);
+        return input;
+    }
+    private void payCustomerOrder(String id) throws Exception {
+        String path="/api/orders/"+id+"/payments";
+        var payment=expect(call(customer,"POST",path,Map.of("requestKey",UUID.randomUUID())),201);
+        expect(call(customer,"POST",path+"/"+payment.get("id").asText()+"/simulation-result",Map.of("outcome","SUCCEEDED")),200);
     }
 
     private Map<String,Object> deliveryAddress() {

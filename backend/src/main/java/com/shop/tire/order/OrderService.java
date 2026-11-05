@@ -73,7 +73,7 @@ public class OrderService {
         Instant now = now();
         if (!now.isBefore(quote.expiresAt())) throw conflict("QUOTE_EXPIRED","Podsumowanie wygasło. Pobierz nowe i potwierdź kwotę.");
         var order = new OrderRepository.Entry(UUID.randomUUID(),quote.id(),input.checkoutKey(),account,quote.guestHash(),quote.accessExpiresAt(),
-                OrderStatus.PENDING_PAYMENT,now,now.plus(Duration.ofMinutes(15)),null,snapshot);
+                OrderStatus.PENDING_PAYMENT,now,now.plus(Duration.ofMinutes(15)),null,snapshot,null);
         orders.create(order);
         carts.completeCheckout(quote.cartId());
         return response(order);
@@ -137,9 +137,7 @@ public class OrderService {
     }
     private boolean expired(OrderRepository.Entry order) { return order.status() == OrderStatus.PENDING_PAYMENT && !clock.instant().isBefore(order.expiresAt()); }
     private OrderResponse response(OrderRepository.Entry order) {
-        boolean expired = expired(order);
-        return new OrderResponse(order.id(),"TS-"+order.id(),expired ? OrderStatus.CANCELLED : order.status(),order.createdAt(),order.expiresAt(),
-                expired ? "EXPIRED" : order.reason(),order.snapshot());
+        return OrderResponse.from(order,clock.instant());
     }
     private void requireReady(CartResponse cart) {
         if (cart.items().isEmpty()) throw conflict("EMPTY_CART","Koszyk jest pusty.");

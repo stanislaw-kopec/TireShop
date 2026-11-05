@@ -20,7 +20,7 @@ Odpowiedzi tych endpointów mają Cache-Control: no-store. Format błędów to P
 
 Domyślny adres to `http://localhost:4200/track-order#token=...`. Token jest we fragmencie, który przeglądarka nie wysyła do serwera przy otwieraniu strony. Angular ma odczytać go, usunąć fragment z paska adresu przez history.replaceState i przekazać token w nagłówku X-Tracking-Token do API. Nie umieszczaj go w query, logach ani systemach analitycznych. Backend nie przyjmuje tokenu śledzenia z query, body ani cookie. CORS dopuszcza ten nagłówek dla skonfigurowanych originów.
 
-Frontend nie jest jeszcze implementowany. Obecnie link można odebrać przez endpoint potwierdzenia lub Mailpit, a jego token wkleić w Authorize → trackingToken w Swaggerze. Nie ma integracji z kurierem. V8 dodaje pole tracking_number do zamówienia; jego uzupełnianie przez pracownika będzie następnym etapem.
+Frontend nie jest jeszcze implementowany. Obecnie link można odebrać przez endpoint potwierdzenia lub Mailpit, a jego token wkleić w Authorize → trackingToken w Swaggerze. Nie ma integracji z kurierem. V8 dodaje pole tracking_number do zamówienia; V9 udostępnia jego uzupełnianie przy wysyłce i korektę przed doręczeniem w [API pracownika](fulfillment-api.md).
 
 ## Odnowienie
 

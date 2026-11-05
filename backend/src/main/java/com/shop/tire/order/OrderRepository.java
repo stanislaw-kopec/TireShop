@@ -12,7 +12,7 @@ class OrderRepository {
     record Quote(UUID id, UUID cartId, UUID accountId, String guestHash, Instant accessExpiresAt,
                  Instant expiresAt, OrderSnapshot snapshot) {}
     record Entry(UUID id, UUID quoteId, UUID checkoutKey, UUID accountId, String guestHash, Instant accessExpiresAt,
-                 OrderStatus status, Instant createdAt, Instant expiresAt, String reason, OrderSnapshot snapshot) {}
+                 OrderStatus status, Instant createdAt, Instant expiresAt, String reason, OrderSnapshot snapshot, String trackingNumber) {}
     private final JdbcTemplate jdbc;
     private final ObjectMapper json;
     OrderRepository(JdbcTemplate jdbc, ObjectMapper json) { this.jdbc = jdbc; this.json = json; }
@@ -45,7 +45,7 @@ class OrderRepository {
                 rs.getBigDecimal("items_total_gross"),rs.getBigDecimal("shipping_gross"),rs.getBigDecimal("total_gross"),rs.getString("currency"));
         return new Entry(id,rs.getObject("quote_id",UUID.class),rs.getObject("checkout_key",UUID.class),rs.getObject("account_id",UUID.class),
                 rs.getString("guest_token_hash"),time(rs,"access_expires_at"),OrderStatus.valueOf(rs.getString("status")),
-                time(rs,"created_at"),time(rs,"reservation_expires_at"),rs.getString("cancellation_reason"),snapshot);
+                time(rs,"created_at"),time(rs,"reservation_expires_at"),rs.getString("cancellation_reason"),snapshot,rs.getString("tracking_number"));
     }
     void create(Entry order) {
         var s = order.snapshot();
@@ -68,12 +68,12 @@ class OrderRepository {
     }
     long count(UUID account) { return jdbc.queryForObject("SELECT count(*) FROM customer_order WHERE account_id=?",Long.class,account); }
     List<OrderSummary> history(UUID account, int page, int size, Instant now) {
-        return jdbc.query("SELECT id,status,created_at,reservation_expires_at,total_gross,currency FROM customer_order WHERE account_id=? ORDER BY created_at DESC,id LIMIT ? OFFSET ?",
+        return jdbc.query("SELECT id,status,created_at,reservation_expires_at,total_gross,currency,tracking_number FROM customer_order WHERE account_id=? ORDER BY created_at DESC,id LIMIT ? OFFSET ?",
                 (rs,row)-> {
                     var status = OrderStatus.valueOf(rs.getString("status"));
                     if (status == OrderStatus.PENDING_PAYMENT && !now.isBefore(time(rs,"reservation_expires_at"))) status = OrderStatus.CANCELLED;
                     UUID id = rs.getObject("id",UUID.class);
-                    return new OrderSummary(id,"TS-" + id,status,time(rs,"created_at"),rs.getBigDecimal("total_gross"),rs.getString("currency"));
+                    return new OrderSummary(id,"TS-" + id,status,time(rs,"created_at"),rs.getBigDecimal("total_gross"),rs.getString("currency"),rs.getString("tracking_number"));
                 },account,size,(long)page*size);
     }
 }

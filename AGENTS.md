@@ -82,6 +82,7 @@ Logowanie jest dostępne podczas przeglądania katalogu, w koszyku i przed zło�
 - Status `PAID` wynika z potwierdzonej płatności. Pracownik obsługuje kolejne etapy i ręcznie aktualizuje status doręczenia.
 - Status `CANCELLED` obejmuje wygaśnięcie nieopłaconego zamówienia oraz anulowanie go przez uprawnionego klienta/gościa. Anulowanie po zapłacie wymaga procesu zwrotów, poza zakresem MVP.
 - Pracownik przypisuje numer przesyłki. Śledzenie w MVP oznacza aktualny status i numer przesyłki, bez integracji z API kuriera.
+- Decyzja z 5 listopada 2026: numer przesyłki jest wymagany przy przejściu do SHIPPED. Pracownik może go skorygować wyłącznie w SHIPPED, przed doręczeniem. Korekta sprawdza poprzednio odczytany numer, aby nie nadpisywać równoczesnej edycji. Nie pomijaj i nie cofaj etapów realizacji.
 
 ### Dostęp gościa
 
@@ -239,7 +240,9 @@ Piąty etap: backend symulatora płatności klienta/gościa, historia prób, suk
 
 Szósty etap: link śledzenia gościa po zapłacie, odczyt wyłącznie statusu/numeru przesyłki, odnawianie na zapisany e-mail i kolejka wiadomości z maksymalnie 5 próbami. V8 dodaje order_access_token, order_email_outbox, tracking_request_limit i tracking_number w zamówieniu. Pierwszy link jest ważny 90 dni od zapłaty; odnowiony 90 dni od wydania, bez unieważniania starych. Publiczne odnowienie zawsze odpowiada 202 dla poprawnego formatu, z limitami 10 żądań/15 min na adres sieciowy i 1/15 min na numer zamówienia. TRACKING_SECRET szyfruje payload poczty i czasową kopię pierwszego tokenu dla uprawnionego ekranu potwierdzenia; dostęp weryfikowany jest po hashu. Kontrakt: `docs/tracking-api.md`.
 
-Ekran Angulara i realizacja pracownicza pozostają do implementacji. Nowe domeny używają błędów niezależnych od HTTP; porządkowanie istniejącego `ApiException` oraz request ID są nadal osobnymi zadaniami.
+Siódmy etap: lista zamówień z filtrem statusu i paginacją oraz szczegóły dla EMPLOYEE, przejścia PAID → PROCESSING → SHIPPED → DELIVERED i korekta numeru przed doręczeniem. ADMIN nie dziedziczy uprawnień. V9 dodaje order_fulfillment_operation do bezpiecznych ponowień po operationId oraz ograniczenia przesyłki. Zapis operacji i zmiana zamówienia są atomowe, z blokadą wiersza zamówienia. trackingNumber jest widoczny także w historii/szczegółach klienta i kontekście gościa. Kontrakt: `docs/fulfillment-api.md`.
+
+Ekran Angulara pozostaje do implementacji. Nowe domeny używają błędów niezależnych od HTTP; porządkowanie istniejącego `ApiException` oraz request ID są nadal osobnymi zadaniami.
 
 ## Poza zakresem MVP
 
