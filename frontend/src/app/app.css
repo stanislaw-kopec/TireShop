@@ -1,0 +1,14 @@
+main {
+  max-width: 64rem;
+  margin: clamp(3rem, 12vh, 8rem) auto;
+  padding-inline: 2rem;
+}
+
+h1 {
+  margin: 1rem 0 .25rem;
+  font-size: clamp(3rem, 8vw, 6rem);
+  letter-spacing: -.05em;
+  line-height: 1;
+}
+
+p { font-size: 1.125rem; }

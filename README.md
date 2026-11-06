@@ -8,7 +8,7 @@ Włącz Docker Desktop i w głównym katalogu `TireShop` uruchom:
 docker compose up
 ```
 
-Docker zbuduje backend ze źródeł, uruchomi PostgreSQL i Mailpit oraz wczyta przykładowe opony i zamówienia. Otwórz [Swagger UI](http://localhost:8081/swagger-ui/index.html) lub [katalog opon](http://localhost:8081/api/tires). Poczta demonstracyjna jest dostępna w [Mailpit](http://localhost:8026).
+Docker zbuduje frontend Angular i backend Spring, uruchomi PostgreSQL i Mailpit oraz wczyta przykładowe opony i zamówienia. Otwórz [stronę startową TireShop](http://localhost:4200). API sprawdzisz w [Swagger UI](http://localhost:8081/swagger-ui/index.html), a wiadomości w [Mailpit](http://localhost:8026). [Instrukcja lokalnej pracy nad frontendem](frontend/README.md).
 
 Zaloguj się jako `customer@demo.test`, `employee@demo.test` lub `admin@demo.test`. Wspólne początkowe hasło znajdziesz w lokalnym pliku `.demo/password.txt`, który powstaje przy pierwszym starcie. Zachowaj katalog `.demo` razem z danymi prezentacji. PostgreSQL zapisuje je w osobnym wolumenie projektu `tireshop-demo`. `Ctrl+C` zatrzymuje prezentację. [Scenariusz pokazu](docs/demo.md).
 
