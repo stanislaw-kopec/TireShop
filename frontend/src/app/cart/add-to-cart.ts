@@ -1,6 +1,6 @@
 import { Component, inject, input, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { GuestCart } from './guest-cart';
+import { ShoppingCart } from './shopping-cart';
 
 @Component({
   selector: 'app-add-to-cart',
@@ -10,9 +10,10 @@ import { GuestCart } from './guest-cart';
       <label>Liczba sztuk
         <input #quantity class="quantity" type="number" value="1" required min="1" step="1" [max]="available()" [disabled]="store.busy()">
       </label>
-      <button class="primary" [disabled]="store.busy()">Dodaj do koszyka</button>
+      <button class="primary" [disabled]="store.busy() || store.mergeState() !== 'none'">Dodaj do koszyka</button>
     </form>
     <div aria-live="polite">
+      @if (store.mergeState() !== 'none') { <p><a routerLink="/koszyk">Dokończ łączenie koszyków</a></p> }
       @if (message()) { <p>{{ message() }} <a routerLink="/koszyk">Przejdź do koszyka</a></p> }
     </div>
   `,
@@ -25,7 +26,7 @@ import { GuestCart } from './guest-cart';
 export class AddToCart {
   readonly productId = input.required<string>();
   readonly available = input.required<number>();
-  protected readonly store = inject(GuestCart);
+  protected readonly store = inject(ShoppingCart);
   protected readonly message = signal('');
 
   protected async add(quantity: number) {

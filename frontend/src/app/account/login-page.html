@@ -1,0 +1,23 @@
+@if (auth.profile()) {
+  <h1>Jesteś zalogowany</h1>
+  <a routerLink="/konto">Przejdź do swojego konta</a>
+} @else {
+  <h1>{{ registerMode() ? 'Załóż konto' : 'Zaloguj się' }}</h1>
+  <form ngNativeValidate (ngSubmit)="submit()">
+    <fieldset [disabled]="busy()">
+      @if (registerMode()) {
+        <label>Imię<input name="firstName" autocomplete="given-name" required maxlength="100" [(ngModel)]="firstName"></label>
+        <label>Nazwisko<input name="lastName" autocomplete="family-name" required maxlength="100" [(ngModel)]="lastName"></label>
+      }
+      <label>E-mail<input name="email" type="email" autocomplete="email" required maxlength="254" [(ngModel)]="email"></label>
+      <label>Hasło<input name="password" type="password" [attr.autocomplete]="registerMode() ? 'new-password' : 'current-password'"
+        required [attr.minlength]="registerMode() ? 12 : null" maxlength="128" [(ngModel)]="password"></label>
+      @if (registerMode()) { <small>Hasło musi mieć od 12 do 128 znaków.</small> }
+      <button class="primary" [disabled]="cart.busy()">{{ registerMode() ? 'Utwórz konto' : 'Zaloguj się' }}</button>
+    </fieldset>
+  </form>
+  @if (feedback()) { <p role="status">{{ feedback() }}</p> }
+  <button class="switch" type="button" [disabled]="busy()" (click)="switchMode()">
+    {{ registerMode() ? 'Mam już konto' : 'Załóż konto klienta' }}
+  </button>
+}

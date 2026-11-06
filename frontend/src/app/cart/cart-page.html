@@ -1,10 +1,23 @@
 <a class="back" routerLink="/">← Wróć do katalogu</a>
-<h1>Koszyk gościa</h1>
+<h1>{{ store.auth.profile() ? 'Twój koszyk' : 'Koszyk gościa' }}</h1>
+@if (store.merged()) { <p role="status">Koszyki zostały połączone. Sprawdź ilości i koszt dostawy.</p> }
+@if (store.mergeState() !== 'none') {
+  <section aria-label="Łączenie koszyków">
+    @if (store.mergeState() === 'conflict') {
+      <p role="status">Nie można połączyć koszyków z wybranymi ilościami. Sprawdź pozycje w obu koszykach, popraw ilości i ponów łączenie.</p>
+      <button (click)="store.owner.set('customer')" [attr.aria-pressed]="store.owner() === 'customer'" [disabled]="store.busy()">Koszyk konta</button>
+      <button (click)="store.owner.set('guest')" [attr.aria-pressed]="store.owner() === 'guest'" [disabled]="store.busy()">Koszyk gościa</button>
+    } @else {
+      <p role="status">{{ store.busy() ? 'Łączenie koszyków…' : 'Ponów łączenie, aby sprawdzić wynik.' }}</p>
+    }
+    <button class="primary" (click)="store.merge()" [disabled]="store.busy()">Połącz koszyki</button>
+  </section>
+}
 @if (store.error()) {
-  <p role="alert">{{ store.error() }} <button type="button" (click)="store.refresh()" [disabled]="store.busy()">Odśwież koszyk</button></p>
+  <p role="alert">{{ store.error() }} @if (store.mergeState() !== 'retry') { <button type="button" (click)="store.refresh()" [disabled]="store.busy()">Odśwież koszyk</button> }</p>
 }
 @let cart = store.cart();
-@if (cart && cart.items.length) {
+@if (store.mergeState() !== 'retry' && cart && cart.items.length) {
   <div class="layout" [attr.aria-busy]="store.busy()">
     <ul aria-label="Opony w koszyku">
       @for (line of cart.items; track line.product.id) {
@@ -53,7 +66,7 @@
   </div>
 } @else if (store.busy()) {
   <p role="status">Pobieranie koszyka…</p>
-} @else if (!store.error()) {
+} @else if (!store.error() && store.mergeState() !== 'retry') {
   <p>Twój koszyk jest pusty.</p>
   <a routerLink="/">Wybierz opony</a>
 }

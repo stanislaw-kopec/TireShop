@@ -4,7 +4,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { routes } from '../app.routes';
-import { Cart, GuestCart } from './guest-cart';
+import { Cart, ShoppingCart } from './shopping-cart';
 
 const url = '/api/guest/cart';
 const storageKey = 'tireshop.guest-cart-token';
@@ -23,12 +23,12 @@ const four: Cart = { ...three, items: [{ ...three.items[0], quantity: 3, lineTot
 
 describe('Koszyk gościa', () => {
   let http: HttpTestingController;
-  let store: GuestCart;
+  let store: ShoppingCart;
   beforeEach(() => {
     sessionStorage.removeItem(storageKey);
     TestBed.configureTestingModule({ providers: [provideRouter(routes), provideHttpClient(), provideHttpClientTesting()] });
     http = TestBed.inject(HttpTestingController);
-    store = TestBed.inject(GuestCart);
+    store = TestBed.inject(ShoppingCart);
   });
   afterEach(() => {
     sessionStorage.removeItem(storageKey);

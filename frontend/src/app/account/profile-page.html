@@ -1,0 +1,33 @@
+<h1>Moje konto</h1>
+@if (auth.profile(); as profile) {
+  <p>{{ profile.email }}</p>
+  <form ngNativeValidate (ngSubmit)="save('profile')">
+    <fieldset [disabled]="busy()"><legend>Dane klienta</legend>
+      <label>Imię<input name="firstName" autocomplete="given-name" required maxlength="100" [(ngModel)]="firstName"></label>
+      <label>Nazwisko<input name="lastName" autocomplete="family-name" required maxlength="100" [(ngModel)]="lastName"></label>
+      <label>Telefon (opcjonalnie)<input name="phone" type="tel" autocomplete="tel" maxlength="30" [(ngModel)]="phone"></label>
+      <button class="primary">Zapisz dane</button>
+    </fieldset>
+  </form>
+  @switch (addressState()) {
+    @case ('loading') { <p role="status">Pobieranie adresu…</p> }
+    @case ('error') { <p role="alert">{{ addressError() }}</p><button (click)="loadAddress()">Pobierz adres ponownie</button> }
+    @case ('ready') {
+      <form ngNativeValidate (ngSubmit)="save('address')">
+        <fieldset [disabled]="busy()"><legend>Adres dostawy</legend>
+          <label>Odbiorca<input name="recipientName" required maxlength="200" autocomplete="shipping name" [(ngModel)]="address.recipientName"></label>
+          <label>Ulica<input name="street" required maxlength="200" [(ngModel)]="address.street"></label>
+          <label>Numer budynku<input name="buildingNumber" required maxlength="20" [(ngModel)]="address.buildingNumber"></label>
+          <label>Numer lokalu (opcjonalnie)<input name="apartmentNumber" maxlength="20" [(ngModel)]="address.apartmentNumber"></label>
+          <label>Kod pocztowy<input name="postalCode" required maxlength="20" autocomplete="shipping postal-code" [(ngModel)]="address.postalCode"></label>
+          <label>Miejscowość<input name="city" required maxlength="100" autocomplete="shipping address-level2" [(ngModel)]="address.city"></label>
+          <label>Kod kraju (np. PL)<input name="countryCode" required maxlength="2" pattern="[A-Za-z]{2}" autocomplete="shipping country" [(ngModel)]="address.countryCode"></label>
+          <button class="primary">Zapisz adres</button>
+        </fieldset>
+      </form>
+    }
+  }
+  @if (feedback()) { <p role="status">{{ feedback() }}</p> }
+} @else {
+  <a routerLink="/logowanie">Zaloguj się, aby zobaczyć swoje dane</a>
+}

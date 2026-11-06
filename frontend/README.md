@@ -6,7 +6,13 @@ Na stronie głównej działa publiczny katalog. Wybierz rozmiar, sezon lub produ
 
 W szczegółach opony wybierz liczbę sztuk i kliknij „Dodaj do koszyka”. Link „Koszyk” w nagłówku prowadzi do `/koszyk`, gdzie możesz zmienić ilość, usunąć pozycję i sprawdzić kwotę brutto. Dostawa dla 1–3 sztuk kosztuje 20 zł, a od 4 sztuk jest bezpłatna, także dla różnych modeli. Aby to sprawdzić, dodaj dwie opony jednego modelu i jedną drugiego, odśwież kartę i zwiększ pierwszą pozycję do trzech.
 
-Serwis `GuestCart` tworzy koszyk przy pierwszym dodaniu i przechowuje w `sessionStorage` tej karty wyłącznie token dostępu. API zwraca bieżące kwoty, dostępność i liczbę sztuk. [Kontrakt API koszyka](../docs/cart-api.md).
+Serwis `ShoppingCart` tworzy koszyk gościa przy pierwszym dodaniu i przechowuje w `sessionStorage` tej karty wyłącznie token koszyka. API zwraca bieżące kwoty, dostępność i liczbę sztuk. [Kontrakt API koszyka](../docs/cart-api.md).
+
+## Konto klienta
+
+Wybierz „Zaloguj się” w nagłówku. Możesz utworzyć własne konto albo użyć klienta demo. Po zalogowaniu zobaczysz koszyk konta. Jeśli w karcie był koszyk gościa, sklep połączy oba i pokaże nowe podsumowanie. Przy konflikcie wybierz koszyk konta lub gościa, zmień ilość albo usuń pozycję i kliknij „Połącz koszyki”. W „Moje konto” możesz zmienić dane i zapisać adres dostawy. [Dane do logowania w demo](../docs/demo.md#konta).
+
+JWT pozostaje w pamięci Angulara do 15 minut. Po odświeżeniu strony lub wygaśnięciu tokenu zaloguj się ponownie, aby wrócić do koszyka konta. „Wyloguj się” unieważnia na serwerze wszystkie dotychczasowe tokeny tego konta.
 
 ## Jak działa komponent karty
 

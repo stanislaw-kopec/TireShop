@@ -3,6 +3,15 @@
     <img src="/wheel.svg" alt="" width="36" height="36">
     TireShop
   </a>
-  <a class="cart-link" routerLink="/koszyk">Koszyk @if (guestCart.cart(); as cart) { ({{ cart.totalQuantity }}) }</a>
+  <nav aria-label="Zakupy i konto">
+    <a routerLink="/koszyk">Koszyk @if (cart.count() !== undefined) { ({{ cart.count() }}) }</a>
+    @if (auth.profile()) {
+      <a routerLink="/konto">Moje konto</a>
+      <button type="button" (click)="logout()" [disabled]="loggingOut() || cart.busy()">Wyloguj się</button>
+    } @else {
+      <a routerLink="/logowanie">Zaloguj się</a>
+    }
+  </nav>
 </header>
+@if (auth.notice()) { <p role="status">{{ auth.notice() }}</p> }
 <main><router-outlet /></main>
