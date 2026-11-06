@@ -22,6 +22,7 @@
           <div><dt>Dostępność</dt><dd>{{ tire.availableQuantity }} szt.</dd></div>
         </dl>
         <p class="price"><strong>{{ priceFormat.format(tire.priceGross) }}</strong> brutto / szt.</p>
+        <app-add-to-cart [productId]="tire.id" [available]="tire.availableQuantity" />
       </section>
     </article>
   }

@@ -30,7 +30,7 @@ export interface TireCardData {
   imageUrl: string | null;
 }
 
-interface PublicTire {
+export interface PublicTire {
   id: string;
   manufacturer: string;
   model: string;

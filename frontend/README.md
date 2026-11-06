@@ -2,6 +2,12 @@
 
 Na stronie głównej działa publiczny katalog. Wybierz rozmiar, sezon lub producenta i kliknij „Pokaż wyniki”. Katalog sortuje opony po cenie i pokazuje po 6 na stronie. „Pokaż szczegóły” otwiera osobną stronę produktu. Adres zachowuje zastosowane filtry, sortowanie i stronę, więc można go odświeżyć lub wrócić do poprzednich wyników. [Plan wdrożenia](../docs/frontend-plan.md).
 
+## Koszyk gościa
+
+W szczegółach opony wybierz liczbę sztuk i kliknij „Dodaj do koszyka”. Link „Koszyk” w nagłówku prowadzi do `/koszyk`, gdzie możesz zmienić ilość, usunąć pozycję i sprawdzić kwotę brutto. Dostawa dla 1–3 sztuk kosztuje 20 zł, a od 4 sztuk jest bezpłatna, także dla różnych modeli. Aby to sprawdzić, dodaj dwie opony jednego modelu i jedną drugiego, odśwież kartę i zwiększ pierwszą pozycję do trzech.
+
+Serwis `GuestCart` tworzy koszyk przy pierwszym dodaniu i przechowuje w `sessionStorage` tej karty wyłącznie token dostępu. API zwraca bieżące kwoty, dostępność i liczbę sztuk. [Kontrakt API koszyka](../docs/cart-api.md).
+
 ## Jak działa komponent karty
 
 W [szablonie katalogu](src/app/catalog/catalog-page.html) pętla `@for` tworzy instancję karty dla każdej opony z odpowiedzi API. W Reakcie podobny zapis to `<TireCard tire={tire} onDetailsRequested={t => showDetails(t.id)} />`.

@@ -3,5 +3,6 @@
     <img src="/wheel.svg" alt="" width="36" height="36">
     TireShop
   </a>
+  <a class="cart-link" routerLink="/koszyk">Koszyk @if (guestCart.cart(); as cart) { ({{ cart.totalQuantity }}) }</a>
 </header>
 <main><router-outlet /></main>

@@ -1,0 +1,59 @@
+<a class="back" routerLink="/">← Wróć do katalogu</a>
+<h1>Koszyk gościa</h1>
+@if (store.error()) {
+  <p role="alert">{{ store.error() }} <button type="button" (click)="store.refresh()" [disabled]="store.busy()">Odśwież koszyk</button></p>
+}
+@let cart = store.cart();
+@if (cart && cart.items.length) {
+  <div class="layout" [attr.aria-busy]="store.busy()">
+    <ul aria-label="Opony w koszyku">
+      @for (line of cart.items; track line.product.id) {
+        @let tire = line.product;
+        <li>
+          <app-tire-photo [url]="tire.imageUrl" [description]="tire.manufacturer + ' ' + tire.model" />
+          <div>
+            <h2>
+              @if (line.issue === 'NOT_FOR_SALE' || tire.availableQuantity === 0) { {{ tire.manufacturer }} {{ tire.model }} }
+              @else { <a [routerLink]="['/opony', tire.id]">{{ tire.manufacturer }} {{ tire.model }}</a> }
+            </h2>
+            <p>{{ tire.widthMm }}/{{ tire.aspectRatio }} R{{ tire.rimDiameterIn }} · {{ seasons[tire.season] }}</p>
+            <p>{{ amount(tire.priceGross) }} / szt.</p>
+            @if (line.issue === 'NOT_FOR_SALE') {
+              <p class="issue">Opona wycofana z oferty. Usuń ją z koszyka.</p>
+            } @else if (line.issue === 'INSUFFICIENT_STOCK') {
+              <p class="issue">Dostępne sztuki: {{ tire.availableQuantity }}. Zmień ilość lub usuń pozycję.</p>
+            }
+            <form (submit)="$event.preventDefault(); update(tire.id, qty)">
+              @let cannotEdit = store.busy() || line.issue === 'NOT_FOR_SALE' || tire.availableQuantity === 0;
+              <label>Liczba sztuk
+                <input #qty class="quantity" type="number" required min="1" step="1" [max]="tire.availableQuantity"
+                       [value]="line.quantity" [disabled]="cannotEdit"
+                       [attr.aria-label]="'Liczba sztuk: ' + tire.manufacturer + ' ' + tire.model">
+              </label>
+              <button type="submit" [disabled]="cannotEdit">Zapisz</button>
+              <button type="button" (click)="store.remove(tire.id)" [disabled]="store.busy()"
+                      [attr.aria-label]="'Usuń: ' + tire.manufacturer + ' ' + tire.model">Usuń</button>
+            </form>
+          </div>
+          <strong class="line-total">{{ amount(line.lineTotalGross) }}</strong>
+        </li>
+      }
+    </ul>
+    <aside aria-label="Podsumowanie koszyka">
+      <h2>Podsumowanie</h2>
+      <dl aria-live="polite">
+        <div><dt>Liczba sztuk</dt><dd>{{ cart.totalQuantity }}</dd></div>
+        <div><dt>Opony</dt><dd>{{ amount(cart.itemsTotalGross) }}</dd></div>
+        <div><dt>Dostawa</dt><dd>{{ cart.shippingGross === 0 ? 'Bezpłatna' : amount(cart.shippingGross) }}</dd></div>
+        <div class="total"><dt>Razem brutto</dt><dd>{{ amount(cart.totalGross) }}</dd></div>
+      </dl>
+      <p>Dostawa gratis od 4 sztuk.</p>
+      @if (!cart.readyForCheckout) { <p class="issue">Sprawdź oznaczone pozycje w koszyku.</p> }
+    </aside>
+  </div>
+} @else if (store.busy()) {
+  <p role="status">Pobieranie koszyka…</p>
+} @else if (!store.error()) {
+  <p>Twój koszyk jest pusty.</p>
+  <a routerLink="/">Wybierz opony</a>
+}

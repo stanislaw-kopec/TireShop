@@ -8,4 +8,6 @@ a { color: #234a3b; }
 h1 { font-size: clamp(2rem, 5vw, 3.4rem); margin-block: 2rem 1.5rem; line-height: 1.1; letter-spacing: -.045em; }
 button { font: inherit; color: inherit; background: #fffefa; border: 1px solid #a5aea4; padding: .55rem .8rem; border-radius: .4rem; cursor: pointer; }
 button:disabled { opacity: .5; cursor: default; }
+input.quantity { width: 5rem; box-sizing: border-box; border: 1px solid #8b978d; border-radius: .4rem; padding: .55rem; font: inherit; }
+button.primary { background: #234a3b; border-color: #234a3b; color: white; }
 :focus-visible { outline: 3px solid #ae4b13; outline-offset: 2px; }

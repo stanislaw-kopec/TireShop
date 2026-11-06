@@ -4,9 +4,10 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Subject, combineLatest, startWith, switchMap } from 'rxjs';
 import { CatalogApi, loadState, priceFormat } from './catalog-api';
 import { TirePhoto } from './tire-photo';
+import { AddToCart } from '../cart/add-to-cart';
 
 @Component({
-  imports: [RouterLink, TirePhoto],
+  imports: [RouterLink, TirePhoto, AddToCart],
   templateUrl: './tire-details.html',
   styles: `
     .back { display: inline-block; margin-top: 1.5rem; }
