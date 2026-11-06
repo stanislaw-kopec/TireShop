@@ -5,10 +5,11 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Subject, catchError, combineLatest, defer, map, of, startWith, switchMap } from 'rxjs';
 import { AccountService } from '../account/account';
 import { priceFormat } from '../catalog/catalog-api';
-import { CheckoutApi, Order, checkoutError } from './checkout-api';
+import { CheckoutApi, orderStatuses, checkoutError } from './checkout-api';
+import { TrackingLink } from '../payment/tracking-link';
 
 @Component({
-  imports: [RouterLink, DatePipe],
+  imports: [RouterLink, DatePipe, TrackingLink],
   template: `
     <a class="back" routerLink="/">← Wróć do katalogu</a>
     <h1>Zamówienie</h1>
@@ -20,6 +21,11 @@ import { CheckoutApi, Order, checkoutError } from './checkout-api';
         <p>Kwota brutto: {{ money.format(order.snapshot.totalGross) }}</p>
         @if (order.status === 'PENDING_PAYMENT') {
           <p>Termin rezerwacji: {{ order.reservationExpiresAt | date:'dd.MM.yyyy, HH:mm:ss' }}.</p>
+          <p><a [routerLink]="['platnosc']">Przejdź do symulatora płatności</a></p>
+        } @else if (order.status !== 'CANCELLED') {
+          <p>Płatność potwierdzona.</p>
+          @if (route.snapshot.data['guest']) { <app-tracking-link [orderId]="order.id" /> }
+          @else { <p>Możesz śledzić status tego zamówienia po zalogowaniu na swoje konto.</p> }
         }
         <button (click)="refresh.next()">Odśwież status</button>
       </section>
@@ -32,10 +38,7 @@ export class OrderPage {
   private readonly auth = inject(AccountService);
   protected readonly route = inject(ActivatedRoute);
   protected readonly money = priceFormat;
-  protected readonly statuses: Record<Order['status'], string> = {
-    PENDING_PAYMENT: 'Oczekuje na płatność', CANCELLED: 'Anulowane', PAID: 'Opłacone',
-    PROCESSING: 'W realizacji', SHIPPED: 'Wysłane', DELIVERED: 'Doręczone',
-  };
+  protected readonly statuses = orderStatuses;
   protected readonly refresh = new Subject<void>();
   protected readonly result = toSignal(combineLatest([
     this.route.paramMap, toObservable(this.auth.profile), this.refresh.pipe(startWith(undefined)),

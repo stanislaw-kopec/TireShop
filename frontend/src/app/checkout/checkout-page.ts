@@ -81,7 +81,9 @@ export class CheckoutPage implements OnInit {
       const order = await this.api.confirm(this.owner, id);
       if (this.life.destroyed || (this.owner !== 'guest' && this.owner !== this.auth.profile()?.id)) return;
       void this.cart.refresh();
-      await this.router.navigate(['/zamowienia', this.owner === 'guest' ? 'gosc' : 'konto', order.id], { replaceUrl: true });
+      const destination = ['/zamowienia', this.owner === 'guest' ? 'gosc' : 'konto', order.id];
+      if (order.status === 'PENDING_PAYMENT') destination.push('platnosc');
+      await this.router.navigate(destination, { replaceUrl: true });
     } catch (error) {
       this.feedback.set(checkoutError(error));
       if (this.api.attempt(this.owner)?.submitted) this.step.set('retry');

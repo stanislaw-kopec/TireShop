@@ -107,7 +107,12 @@ describe('Składanie zamówienia', () => {
     expect(receipt.request.headers.get('X-Purchase-Token')).toBe('purchase-secret');
     receipt.flush(order);
     await settle();
-    expect(page().textContent).toContain('Oczekuje na płatność');
+    http.expectOne(guest + '/' + order.id + '/payments?page=0&size=1').flush({ items: [] });
+    await settle();
+    http.expectOne({ method: 'POST', url: guest + '/' + order.id + '/payments' })
+      .flush({ id: 'payment-a', orderId: order.id, amountGross: 220, status: 'PENDING' });
+    await settle();
+    expect(page().textContent).toContain('Symulator płatności');
     expect(page().textContent).toContain(order.orderNumber);
     expect(api.attempt('guest')).toBeNull();
   });

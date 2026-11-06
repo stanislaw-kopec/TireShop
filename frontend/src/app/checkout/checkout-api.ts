@@ -23,6 +23,11 @@ export interface Attempt {
   quoteId: string; checkoutKey: string; purchaseToken: string | null; submitted: boolean; orderId?: string;
 }
 
+export const orderStatuses: Record<Order['status'], string> = {
+  PENDING_PAYMENT: 'Oczekuje na płatność', CANCELLED: 'Anulowane', PAID: 'Opłacone',
+  PROCESSING: 'W realizacji', SHIPPED: 'Wysłane', DELIVERED: 'Doręczone',
+};
+
 const base = (owner: string) => owner === 'guest' ? '/api/guest/orders' : '/api/orders';
 const attemptKey = (owner: string) => 'tireshop.checkout.' + owner;
 const purchaseKey = (orderId: string) => 'tireshop.purchase.' + orderId;
@@ -99,10 +104,15 @@ export class CheckoutApi {
     return order;
   }
 
-  async order(owner: string, id: string) {
+  orderResource(owner: string, id: string) {
     const token = owner === 'guest' ? sessionStorage.getItem(purchaseKey(id)) : null;
     const headers = this.headers(owner, 'X-Purchase-Token', token);
-    const order = await firstValueFrom(this.http.get<Order>(base(owner) + '/' + encodeURIComponent(id), { headers }));
+    return { url: base(owner) + '/' + encodeURIComponent(id), headers };
+  }
+
+  async order(owner: string, id: string) {
+    const { url, headers } = this.orderResource(owner, id);
+    const order = await firstValueFrom(this.http.get<Order>(url, { headers }));
     const attempt = this.attempt(owner);
     if (attempt?.orderId === id) this.forget(owner, attempt.quoteId);
     return order;

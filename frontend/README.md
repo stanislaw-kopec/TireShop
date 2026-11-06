@@ -20,6 +20,12 @@ W koszyku wybierz „Przejdź dalej”. Gość podaje kontakt i adres, a klient 
 
 Jeżeli odpowiedź na potwierdzenie nie dotrze, kliknij „Ponów potwierdzenie”. Możesz też wrócić przez link w koszyku w tej samej karcie. Aplikacja użyje pierwotnego klucza zakupu. Po zmianie ceny lub zawartości koszyka trzeba obejrzeć i zatwierdzić nowe podsumowanie. Gość może odświeżyć ekran zamówienia w tej karcie dzięki osobnemu tokenowi zakupu.
 
+## Płatność w demo
+
+Po kliknięciu „Zapłać” sklep otwiera symulator z kwotą zamówienia. Wybierz „Zatwierdź płatność”, „Odrzuć płatność” lub „Anuluj próbę”. Możesz ponowić odrzuconą lub anulowaną próbę do pierwotnego terminu rezerwacji. Jeśli odpowiedź zaginie, „Sprawdź status płatności” pobierze stan z backendu. Symulator nie pobiera środków.
+
+Po potwierdzeniu gość może otworzyć „Śledź zamówienie”, także z wiadomości w lokalnym Mailpit. Klient konta widzi numer i aktualny status zamówienia. Odświeżenie potwierdzenia pobiera aktualne dane. [API płatności](../docs/payment-api.md).
+
 ## Jak działa komponent karty
 
 W [szablonie katalogu](src/app/catalog/catalog-page.html) pętla `@for` tworzy instancję karty dla każdej opony z odpowiedzi API. W Reakcie podobny zapis to `<TireCard tire={tire} onDetailsRequested={t => showDetails(t.id)} />`.

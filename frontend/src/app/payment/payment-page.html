@@ -1,0 +1,36 @@
+<h1>Symulator płatności</h1>
+@if (context(); as ctx) {
+  <a [routerLink]="ctx.receipt">Wróć do zamówienia</a>
+  @if (order(); as currentOrder) {
+    <p>Zamówienie <strong>{{ currentOrder.orderNumber }}</strong></p>
+    <p>Rezerwacja do {{ currentOrder.reservationExpiresAt | date:'dd.MM.yyyy, HH:mm:ss' }}.</p>
+  }
+  @if (error()) {
+    <p role="alert">{{ error() }}</p>
+    <button (click)="refresh()" [disabled]="busy()">Sprawdź status płatności</button>
+  } @else if (payment(); as attempt) {
+    <section>
+      <h2>{{ money.format(attempt.amountGross) }}</h2>
+      @switch (attempt.status) {
+        @case ('PENDING') {
+          <p>Wybierz wynik symulacji. Środki nie zostaną pobrane.</p>
+          <div class="actions">
+            <button class="primary" [disabled]="busy()" (click)="finish('SUCCEEDED')">Zatwierdź płatność</button>
+            <button [disabled]="busy()" (click)="finish('FAILED')">Odrzuć płatność</button>
+            <button [disabled]="busy()" (click)="finish('CANCELLED')">Anuluj próbę</button>
+          </div>
+        }
+        @case ('SUCCEEDED') {
+          <p>Próba zakończona. Sprawdź potwierdzenie zamówienia.</p>
+          <a [routerLink]="ctx.receipt">Pokaż potwierdzenie</a>
+        }
+        @default {
+          <p role="status">{{ attempt.status === 'FAILED' ? 'Płatność została odrzucona.' : 'Próba została anulowana.' }}</p>
+          <button class="primary" [disabled]="busy()" (click)="retry()">Ponów płatność</button>
+        }
+      }
+    </section>
+  } @else { <p role="status">Pobieranie stanu płatności…</p> }
+} @else {
+  <a routerLink="/logowanie" [queryParams]="{ zamowienie: orderId() }">Zaloguj się na konto użyte przy zakupie</a>
+}
