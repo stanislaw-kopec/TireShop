@@ -1,0 +1,16 @@
+<article>
+  <app-tire-photo [url]="tire().imageUrl" [description]="tire().manufacturer + ' ' + tire().model" />
+  <header>
+    <span>{{ tire().manufacturer }}</span>
+    <span>{{ tire().seasonLabel }}</span>
+  </header>
+  <h3>{{ tire().model }}</h3>
+  <p class="size">{{ tire().size }}</p>
+  <footer>
+    <p><strong>{{ priceFormat.format(tire().priceGross) }}</strong> / szt.</p>
+    <button type="button" (click)="detailsRequested.emit(tire())"
+            [attr.aria-label]="'Pokaż szczegóły: ' + tire().manufacturer + ' ' + tire().model">
+      Pokaż szczegóły
+    </button>
+  </footer>
+</article>

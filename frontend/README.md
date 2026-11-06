@@ -1,6 +1,19 @@
 # TireShop — frontend
 
-Aplikacja startowa w Angular 21 ma komponent standalone, routing, HttpClient oraz TypeScript w trybie strict. Widok startowy jest po polsku.
+Na stronie głównej działa publiczny katalog. Wybierz rozmiar, sezon lub producenta i kliknij „Pokaż wyniki”. Katalog sortuje opony po cenie i pokazuje po 6 na stronie. „Pokaż szczegóły” otwiera osobną stronę produktu. Adres zachowuje zastosowane filtry, sortowanie i stronę, więc można go odświeżyć lub wrócić do poprzednich wyników. [Plan wdrożenia](../docs/frontend-plan.md).
+
+## Jak działa komponent karty
+
+W [szablonie katalogu](src/app/catalog/catalog-page.html) pętla `@for` tworzy instancję karty dla każdej opony z odpowiedzi API. W Reakcie podobny zapis to `<TireCard tire={tire} onDetailsRequested={t => showDetails(t.id)} />`.
+
+```html
+<app-tire-card [tire]="tire" (detailsRequested)="showDetails($event.id)" />
+```
+
+- [CatalogApi](src/app/catalog/catalog-api.ts) pobiera produkty i producentów z backendu. Dane jednej opony zamienia na model widoku, np. z trzech liczb tworzy rozmiar „205/55 R16”.
+- [TireCard](src/app/catalog/tire-card/tire-card.ts) przyjmuje dane przez `input.required()`. To rola podobna do propsa w Reakcie. Gdy użytkownik klika przycisk, karta emituje wybraną oponę przez `detailsRequested`.
+- [CatalogPage](src/app/catalog/catalog-page.ts) odbiera zdarzenie i otwiera trasę `/opony/:id`. [TireDetails](src/app/catalog/tire-details.ts) odczytuje identyfikator z adresu i pobiera aktualną cenę oraz dostępność. Dzięki temu szczegóły działają także po bezpośrednim otwarciu linku.
+- Stan listy zależy od parametrów w URL. `switchMap` przełącza żądanie po zmianie parametrów, aby spóźniona odpowiedź nie zastąpiła aktualnych wyników.
 
 ## Demo
 

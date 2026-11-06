@@ -1,0 +1,66 @@
+<h1>Katalog opon</h1>
+<div class="layout">
+  <form (ngSubmit)="apply(filters)" ngNativeValidate aria-label="Filtry katalogu">
+    <h2>Filtry</h2>
+    <fieldset>
+      <legend>Rozmiar opony</legend>
+      <div class="dimensions">
+        <label>Szerokość <small>mm</small><input type="number" name="widthMm" min="100" max="500" step="1" placeholder="205" [(ngModel)]="filters.widthMm"></label>
+        <label>Profil <small>%</small><input type="number" name="aspectRatio" min="20" max="100" step="1" placeholder="55" [(ngModel)]="filters.aspectRatio"></label>
+        <label>Średnica <small>cal</small><input type="number" name="rimDiameterIn" min="10" max="30" step="1" placeholder="16" [(ngModel)]="filters.rimDiameterIn"></label>
+      </div>
+    </fieldset>
+    <label>Sezon<select name="season" [(ngModel)]="filters.season">
+      <option value="">Wszystkie sezony</option>
+      @for (option of seasonOptions; track option[0]) { <option [value]="option[0]">{{ option[1] }}</option> }
+    </select></label>
+    @let manufacturers = brands();
+    <label>Producent<select name="manufacturerId" [(ngModel)]="filters.manufacturerId" [disabled]="manufacturers.status !== 'ready'">
+      <option value="">Wszyscy producenci</option>
+      @if (manufacturers.status === 'ready') {
+        @for (brand of manufacturers.data; track brand.id) { <option [value]="brand.id">{{ brand.name }}</option> }
+      }
+    </select></label>
+    @if (manufacturers.status === 'error') {
+      <p role="alert">Nie udało się pobrać producentów. <button type="button" (click)="retryBrands.next()">Ponów</button></p>
+    }
+    <label>Sortowanie<select name="sort" [(ngModel)]="filters.sort">
+      <option value="PRICE_ASC">Cena rosnąco</option><option value="PRICE_DESC">Cena malejąco</option>
+    </select></label>
+    <button type="submit" class="primary">Pokaż wyniki</button>
+    <button type="button" (click)="reset()">Wyczyść filtry</button>
+  </form>
+  <section class="results" aria-label="Wyniki wyszukiwania">
+    @let result = list();
+    @switch (result.status) {
+      @case ('loading') { <p role="status">Pobieranie opon…</p> }
+      @case ('error') {
+        <p role="alert">Nie udało się pobrać katalogu.</p>
+        <button type="button" (click)="retryList.next()">Spróbuj ponownie</button>
+      }
+      @case ('ready') {
+        @if (result.data.items.length) {
+          <p class="count" role="status">Liczba wyników: <strong>{{ result.data.totalElements }}</strong></p>
+          <div class="cards">
+            @for (tire of result.data.items; track tire.id) {
+              <app-tire-card [tire]="tire" (detailsRequested)="showDetails($event.id)" />
+            }
+          </div>
+          @if (result.data.totalPages > 1) {
+            <nav aria-label="Strony katalogu">
+              <button type="button" [disabled]="result.data.page === 0" (click)="goToPage(result.data.page - 1)">Poprzednia</button>
+              <span>Strona {{ result.data.page + 1 }} z {{ result.data.totalPages }}</span>
+              <button type="button" [disabled]="result.data.page + 1 >= result.data.totalPages" (click)="goToPage(result.data.page + 1)">Następna</button>
+            </nav>
+          }
+        } @else if (result.data.page > 0) {
+          <p role="status">Na tej stronie nie ma już opon.</p>
+          <button type="button" (click)="goToPage(0)">Przejdź na pierwszą stronę</button>
+        } @else {
+          <p role="status">Brak opon dla wybranych parametrów.</p>
+          <button type="button" (click)="reset()">Pokaż wszystkie opony</button>
+        }
+      }
+    }
+  </section>
+</div>

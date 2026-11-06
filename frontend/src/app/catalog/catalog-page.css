@@ -1,0 +1,15 @@
+.layout { display: grid; grid-template-columns: minmax(16rem, 19rem) 1fr; align-items: start; gap: clamp(1rem, 3vw, 2.5rem); }
+form { display: grid; gap: 1rem; padding: 1.25rem; background: #eeefe7; border-radius: .75rem; }
+form h2 { font-size: 1.3rem; margin: 0; }
+fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+legend { padding: 0; margin-bottom: .5rem; font-weight: 600; }
+.dimensions { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: .4rem; }
+label { display: block; font-size: .87rem; }
+.dimensions label { font-size: .75rem; }
+input, select { box-sizing: border-box; width: 100%; margin-top: .35rem; padding: .6rem .4rem; border: 1px solid #8b978d; border-radius: .35rem; background: #fffefa; color: inherit; font: inherit; }
+.primary { color: #fff; background: #234a3b; border-color: #234a3b; }
+.results { min-width: 0; }
+.count { margin: 0 0 .8rem; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr)); gap: .9rem; }
+nav { display: flex; gap: 1rem; align-items: center; justify-content: center; flex-wrap: wrap; margin-block: 1.5rem; }
+@media (max-width: 48rem) { .layout { grid-template-columns: 1fr; } }

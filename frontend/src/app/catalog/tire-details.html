@@ -1,0 +1,28 @@
+<a class="back" routerLink="/" queryParamsHandling="preserve">← Wróć do wyników</a>
+@let current = result();
+@switch (current.status) {
+  @case ('loading') { <p role="status">Pobieranie opony…</p> }
+  @case ('error') {
+    @if (current.httpStatus === 404 || current.httpStatus === 400) {
+      <h1>Opona niedostępna</h1><p>Sprawdź aktualne modele w katalogu.</p>
+    } @else {
+      <p role="alert">Nie udało się pobrać szczegółów opony.</p>
+      <button type="button" (click)="retry.next()">Spróbuj ponownie</button>
+    }
+  }
+  @case ('ready') {
+    @let tire = current.data;
+    <article>
+      <app-tire-photo [url]="tire.imageUrl" [description]="tire.manufacturer + ' ' + tire.model" />
+      <section>
+        <p>{{ tire.manufacturer }}</p><h1>{{ tire.model }}</h1>
+        <dl>
+          <div><dt>Rozmiar</dt><dd>{{ tire.size }}</dd></div>
+          <div><dt>Sezon</dt><dd>{{ tire.seasonLabel }}</dd></div>
+          <div><dt>Dostępność</dt><dd>{{ tire.availableQuantity }} szt.</dd></div>
+        </dl>
+        <p class="price"><strong>{{ priceFormat.format(tire.priceGross) }}</strong> brutto / szt.</p>
+      </section>
+    </article>
+  }
+}
