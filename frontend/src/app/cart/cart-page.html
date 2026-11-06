@@ -1,5 +1,7 @@
 <a class="back" routerLink="/">← Wróć do katalogu</a>
 <h1>{{ store.auth.profile() ? 'Twój koszyk' : 'Koszyk gościa' }}</h1>
+@let pending = checkout.attempt(store.auth.profile()?.id ?? 'guest')?.submitted;
+@if (pending) { <p><a routerLink="/zakup">Sprawdź wynik ostatniego zamówienia</a></p> }
 @if (store.merged()) { <p role="status">Koszyki zostały połączone. Sprawdź ilości i koszt dostawy.</p> }
 @if (store.mergeState() !== 'none') {
   <section aria-label="Łączenie koszyków">
@@ -61,6 +63,9 @@
         <div class="total"><dt>Razem brutto</dt><dd>{{ amount(cart.totalGross) }}</dd></div>
       </dl>
       <p>Dostawa gratis od 4 sztuk.</p>
+      @if (cart.readyForCheckout && store.mergeState() === 'none' && !store.busy() && !pending) {
+        <a class="checkout" routerLink="/zakup">Przejdź dalej</a>
+      }
       @if (!cart.readyForCheckout) { <p class="issue">Sprawdź oznaczone pozycje w koszyku.</p> }
     </aside>
   </div>

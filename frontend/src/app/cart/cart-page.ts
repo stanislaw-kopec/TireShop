@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 import { TirePhoto } from '../catalog/tire-photo';
 import { priceFormat, seasons } from '../catalog/catalog-api';
 import { ShoppingCart } from './shopping-cart';
+import { CheckoutApi } from '../checkout/checkout-api';
 
 @Component({
   imports: [RouterLink, TirePhoto],
@@ -11,6 +12,7 @@ import { ShoppingCart } from './shopping-cart';
 })
 export class CartPage implements OnInit {
   protected readonly store = inject(ShoppingCart);
+  protected readonly checkout = inject(CheckoutApi);
   protected readonly seasons = seasons;
   protected amount(value: number | null) {
     return value === null ? 'Brak wyceny' : priceFormat.format(value);

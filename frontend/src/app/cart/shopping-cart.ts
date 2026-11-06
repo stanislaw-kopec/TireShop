@@ -22,6 +22,7 @@ export interface Cart {
 }
 
 const storageKey = 'tireshop.guest-cart-token';
+export const guestCartToken = () => sessionStorage.getItem(storageKey);
 const guestUrl = '/api/guest/cart';
 const customerUrl = '/api/cart';
 type Owner = 'guest' | 'customer';

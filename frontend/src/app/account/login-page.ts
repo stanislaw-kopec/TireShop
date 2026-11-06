@@ -1,6 +1,6 @@
 import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ShoppingCart } from '../cart/shopping-cart';
 import { AccountService, accountError } from './account';
 
@@ -13,6 +13,7 @@ export class LoginPage {
   protected readonly auth = inject(AccountService);
   protected readonly cart = inject(ShoppingCart);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   protected readonly registerMode = signal(false);
   protected readonly busy = signal(false);
   protected readonly feedback = signal('');
@@ -39,6 +40,14 @@ export class LoginPage {
       } else {
         await this.auth.login(this.email.trim(), this.password);
         this.password = '';
+        const orderId = this.route.snapshot.queryParamMap.get('zamowienie');
+        if (orderId && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(orderId)) {
+          await this.cart.open();
+          if (this.cart.mergeState() === 'none') {
+            await this.router.navigate(['/zamowienia/konto', orderId]);
+            return;
+          }
+        }
         await this.router.navigateByUrl('/koszyk');
       }
     } catch (error) {

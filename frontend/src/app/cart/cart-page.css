@@ -1,4 +1,5 @@
 .back { display: inline-block; margin-top: 1.5rem; }
+.checkout { display: inline-block; background: #234a3b; color: white; border-radius: .4rem; padding: .65rem 1rem; text-decoration: none; font-weight: 600; }
 section { margin-bottom: 1.25rem; }
 section button { margin: .25rem .35rem .25rem 0; }
 button[aria-pressed="true"] { border: 2px solid #234a3b; }

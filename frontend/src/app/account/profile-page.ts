@@ -1,10 +1,11 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { AddressFields } from './address-fields';
 import { RouterLink } from '@angular/router';
 import { AccountService, Address, accountError } from './account';
 
 @Component({
-  imports: [FormsModule, RouterLink],
+  imports: [FormsModule, RouterLink, AddressFields],
   templateUrl: './profile-page.html',
   styleUrl: './forms.css',
 })

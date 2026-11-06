@@ -14,6 +14,12 @@ Wybierz „Zaloguj się” w nagłówku. Możesz utworzyć własne konto albo u�
 
 JWT pozostaje w pamięci Angulara do 15 minut. Po odświeżeniu strony lub wygaśnięciu tokenu zaloguj się ponownie, aby wrócić do koszyka konta. „Wyloguj się” unieważnia na serwerze wszystkie dotychczasowe tokeny tego konta.
 
+## Składanie zamówienia
+
+W koszyku wybierz „Przejdź dalej”. Gość podaje kontakt i adres, a klient może sprawdzić i poprawić dane pobrane z konta na potrzeby tej dostawy. Ekran podsumowania pokazuje pozycje, ceny jednostkowe, dostawę i kwotę brutto z backendu. Dopiero „Zapłać” składa zamówienie i rozpoczyna 15-minutową rezerwację. Po udanym złożeniu zobaczysz numer zamówienia, status i termin rezerwacji. [API zamówień](../docs/order-api.md).
+
+Jeżeli odpowiedź na potwierdzenie nie dotrze, kliknij „Ponów potwierdzenie”. Możesz też wrócić przez link w koszyku w tej samej karcie. Aplikacja użyje pierwotnego klucza zakupu. Po zmianie ceny lub zawartości koszyka trzeba obejrzeć i zatwierdzić nowe podsumowanie. Gość może odświeżyć ekran zamówienia w tej karcie dzięki osobnemu tokenowi zakupu.
+
 ## Jak działa komponent karty
 
 W [szablonie katalogu](src/app/catalog/catalog-page.html) pętla `@for` tworzy instancję karty dla każdej opony z odpowiedzi API. W Reakcie podobny zapis to `<TireCard tire={tire} onDetailsRequested={t => showDetails(t.id)} />`.

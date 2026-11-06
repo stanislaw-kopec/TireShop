@@ -1,0 +1,54 @@
+<a class="back" routerLink="/koszyk">← Wróć do koszyka</a>
+@if (owner !== 'guest' && owner !== auth.profile()?.id) {
+  <h1>Zakup z konta</h1><a routerLink="/logowanie">Zaloguj się ponownie</a>
+} @else {
+  @if (feedback()) { <p role="alert">{{ feedback() }}</p> }
+  @switch (step()) {
+    @case ('choice') {
+      <h1>Jak chcesz kupić?</h1>
+      <div class="actions"><button class="primary" (click)="step.set('address')">Kup jako gość</button>
+        <a routerLink="/logowanie">Zaloguj się lub załóż konto</a></div>
+    }
+    @case ('merge') { <h1>Sprawdź połączony koszyk</h1><a routerLink="/koszyk">Przejdź do koszyka</a> }
+    @case ('loading') { <h1>Adres i dostawa</h1><p role="status">Pobieranie adresu…</p> }
+    @case ('addressError') { <h1>Adres i dostawa</h1><button (click)="loadAddress()">Pobierz adres ponownie</button> }
+    @case ('address') {
+      <h1>Adres i dostawa</h1>
+      <form ngNativeValidate (ngSubmit)="preview()"><fieldset [disabled]="busy()"><legend>Dane do zamówienia</legend>
+        <label>E-mail<input name="email" type="email" required maxlength="254" autocomplete="email" [(ngModel)]="delivery.email"></label>
+        <label>Telefon<input name="phone" type="tel" required maxlength="30" autocomplete="tel" [(ngModel)]="delivery.phone"></label>
+        <app-address-fields [address]="delivery.address" />
+        @if (owner !== 'guest') { <small>Zmiany dotyczą tylko tego zamówienia.</small> }
+        <button class="primary">Pokaż podsumowanie</button>
+      </fieldset></form>
+    }
+    @case ('summary') {
+      @if (quote(); as q) {
+        @let s = q.snapshot;
+        @let d = s.delivery;
+        <h1>Podsumowanie zamówienia</h1>
+        <section><h2>Opony</h2>
+        <ul>@for (line of s.items; track line.product.id) {
+          <li><strong>{{ line.product.manufacturer }} {{ line.product.model }}</strong>
+            <div>{{ line.product.widthMm }}/{{ line.product.aspectRatio }} R{{ line.product.rimDiameterIn }} · {{ seasons[line.product.season] }}</div>
+            <div>{{ line.quantity }} szt. × {{ money.format(line.unitPriceGross) }} = {{ money.format(line.lineTotalGross) }}</div></li>
+        }</ul>
+        <dl><div><dt>Opony brutto</dt><dd>{{ money.format(s.itemsTotalGross) }}</dd></div>
+          <div><dt>Dostawa</dt><dd>{{ s.shippingGross === 0 ? 'Bezpłatna' : money.format(s.shippingGross) }}</dd></div>
+          <div><dt>Razem brutto</dt><dd><strong>{{ money.format(s.totalGross) }}</strong></dd></div></dl>
+        </section>
+        <section><h2>Dane dostawy</h2><p>{{ d.address.recipientName }}<br>
+          {{ d.address.street }} {{ d.address.buildingNumber }}@if (d.address.apartmentNumber) {/{{ d.address.apartmentNumber }}}<br>
+          {{ d.address.postalCode }} {{ d.address.city }}, {{ d.address.countryCode }}</p><p>{{ d.email }} · {{ d.phone }}</p>
+          <button [disabled]="busy()" (click)="step.set('address')">Zmień dane</button></section>
+        <p>Podsumowanie ważne do {{ q.expiresAt | date:'HH:mm:ss' }}. Kliknięcie „Zapłać” złoży zamówienie i zarezerwuje opony na 15 minut.</p>
+        <button class="primary" [disabled]="busy()" (click)="confirm()">Zapłać {{ money.format(s.totalGross) }}</button>
+      }
+    }
+    @case ('retry') {
+      <h1>Sprawdź wynik zamówienia</h1>
+      <p>Możesz bezpiecznie ponowić ostatnie potwierdzenie. Sklep użyje tego samego numeru zakupu.</p>
+      <button class="primary" [disabled]="busy()" (click)="confirm()">Ponów potwierdzenie</button>
+    }
+  }
+}
