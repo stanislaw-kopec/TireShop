@@ -1,5 +1,17 @@
 # TireShop
 
+## Demo w Dockerze
+
+Włącz Docker Desktop i w głównym katalogu `TireShop` uruchom:
+
+```powershell
+docker compose up
+```
+
+Docker zbuduje backend ze źródeł, uruchomi PostgreSQL i Mailpit oraz wczyta przykładowe opony i zamówienia. Otwórz [Swagger UI](http://localhost:8081/swagger-ui/index.html) lub [katalog opon](http://localhost:8081/api/tires). Poczta demonstracyjna jest dostępna w [Mailpit](http://localhost:8026).
+
+Zaloguj się jako `customer@demo.test`, `employee@demo.test` lub `admin@demo.test`. Wspólne początkowe hasło znajdziesz w lokalnym pliku `.demo/password.txt`, który powstaje przy pierwszym starcie. Zachowaj katalog `.demo` razem z danymi prezentacji. PostgreSQL zapisuje je w osobnym wolumenie projektu `tireshop-demo`. `Ctrl+C` zatrzymuje prezentację. [Scenariusz pokazu](docs/demo.md).
+
 ## Backend — uruchomienie lokalne
 
 Wymagania: JDK 25 (`JAVA_HOME` wskazujący katalog JDK) oraz uruchomiony Docker Desktop z kontenerami Linux. Maven pobiera się automatycznie przez wrapper.
@@ -50,7 +62,7 @@ Springdoc używa poprawki 3.1.1 ze względu na [błąd generowania schematów pa
 
 W IntelliJ ustaw `JWT_SECRET` w **Run → Edit Configurations → Environment variables** (wygenerowana wartość Base64 co najmniej 32 losowych bajtów; nie hasło wymyślone ręcznie). Bez poprawnego sekretu start zakończy się czytelnym błędem. Używaj tej samej wartości przy restartach, jeśli wcześniej wydane tokeny mają nadal działać; zmiana klucza je unieważnia. Nie zapisuj sekretu w współdzielonej konfiguracji IDE/Git. Lista ustawień: [backend/.env.example](backend/.env.example); plik jest wzorem, nie konfiguracją automatycznie wczytywaną przez Spring.
 
-W IntelliJ uruchom klasę `com.shop.tire.Application` i wybierz JDK 25. Katalog roboczy może wskazywać główny katalog `TireShop` lub `backend`. Główny `compose.yaml` dołącza konfigurację z `backend/compose.yaml` (wymaga Docker Compose 2.20+); oba korzystają z tej samej bazy i wolumenu. Dla innego katalogu roboczego ustaw zmienną `COMPOSE_FILE` na pełną ścieżkę do `backend/compose.yaml`.
+W IntelliJ uruchom klasę `com.shop.tire.Application` i wybierz JDK 25. Katalog roboczy może wskazywać główny katalog `TireShop` lub `backend`. Profil lokalny odczytuje `compose.local.yaml` i uruchamia usługi projektu `tireshop` z `backend/compose.yaml` (Docker Compose 2.20+). Dla innego katalogu roboczego ustaw zmienną `COMPOSE_FILE` na pełną ścieżkę do `backend/compose.yaml`.
 
 ## Baza danych
 
@@ -67,6 +79,8 @@ Dla istniejącej bazy ustaw `SPRING_PROFILES_ACTIVE=external` oraz `DB_URL`, `DB
 Flyway wykonuje migracje z `backend/src/main/resources/db/migration`. V1 tworzy konta, adresy i jednorazowe tokeny. Historyczna V2 tworzyła sesje; V3 usuwa ich dwie techniczne tabele po przejściu na JWT. V4 dodaje producentów, opony, magazyn i historię zmian stanu. Dotychczasowe zalogowania sesyjne przestają działać, konta i hasła pozostają. Nie zmieniaj wykonanych migracji ani nie czyść bazy. Hibernate sprawdza zgodność schematu (`ddl-auto=validate`).
 
 ## Pierwszy administrator
+
+Do prezentacji możesz zamiast ręcznego przygotowania danych użyć [profilu demo](docs/demo.md). Dodaje 15 produktów, konta i przykładowe zamówienia; działa wyłącznie po jawnym włączeniu i nie nadpisuje danych przy restarcie.
 
 W konfiguracji uruchomienia IntelliJ dodaj zmienne środowiskowe:
 
@@ -105,6 +119,8 @@ Z katalogu `backend`:
 Testy HTTP używają osobnego PostgreSQL 17 uruchamianego przez Testcontainers. Wymagają działającego Dockera i nie dotykają lokalnej bazy sklepu. Sprawdzają migracje, JWT (w tym błędne i wygasłe tokeny), brak sesji, uprawnienia, CORS, konta, katalog, magazyn, koszyki, zamówienia, płatności i realizację. Obejmują także ponowienia, rollback i równoległe operacje na stanie. Sekrety są generowane wyłącznie w testach; nie trzeba ustawiać własnego `JWT_SECRET` ani `TRACKING_SECRET`.
 
 Większość testów używa profilu `test` i kontrolowanego nadajnika poczty, m.in. do wymuszania awarii SMTP. `MvpJourneyIntegrationTests` uruchamia pełną aplikację w profilu `external` z izolowanymi PostgreSQL i Mailpit, wykonuje zakupy klienta/gościa przez HTTP i sprawdza prawdziwą wysyłkę SMTP. Uruchamia aplikację ponownie na tej samej bazie, aby sprawdzić migracje, trwałość danych, odzyskanie linku i wykonanie zaległych zadań. [Wynik końcowej weryfikacji MVP](docs/mvp-verification.md).
+
+`DemoSeedIntegrationTests` sprawdza osobno start profilu demo, logowanie i dane przez HTTP, ponowne wykonanie, zachowanie edycji po restarcie, pierwszeństwo istniejącego bootstrapu oraz rollback przy kolizji konta. Dane testowe pozostają w izolowanych kontenerach.
 
 Wynik budowania: `backend/target/demo-0.0.1-SNAPSHOT.jar`. Przy uruchamianiu JAR zapewnij działającą bazę i użyj profilu `external` z właściwymi zmiennymi połączenia.
 

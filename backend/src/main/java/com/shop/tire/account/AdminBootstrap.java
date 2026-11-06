@@ -6,6 +6,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 @Component
+@org.springframework.core.annotation.Order(0)
 @ConditionalOnProperty(name = "app.bootstrap.enabled", havingValue = "true")
 class AdminBootstrap implements ApplicationRunner {
     private final AdminBootstrapService service;

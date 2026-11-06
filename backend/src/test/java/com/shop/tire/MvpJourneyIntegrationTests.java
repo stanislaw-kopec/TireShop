@@ -149,7 +149,7 @@ class MvpJourneyIntegrationTests {
         return app;
     }
     private void assertMigrations(JdbcTemplate jdbc) {
-        assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where success",Integer.class)).isEqualTo(9);
+        assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where success",Integer.class)).isEqualTo(10);
     }
     private void pay(String jwt, String purchase, String order) throws Exception {
         String path=(purchase==null?"/api/orders/":"/api/guest/orders/")+order+"/payments";

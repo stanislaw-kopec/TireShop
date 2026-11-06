@@ -228,6 +228,10 @@ Wstępny projekt relacji i uzasadnienia znajdują się w `docs/backend-design.md
 
 ## Stan implementacji
 
+Głównym sposobem uruchomienia prezentacji jest `docker compose up` z głównego katalogu. Projekt Compose `tireshop-demo` buduje aplikację ze źródeł, włącza profil demo i utrzymuje własny wolumen PostgreSQL. Lokalny start z IntelliJ lub Maven korzysta z osobnej konfiguracji usług `compose.local.yaml`. Kontener demo przekazuje do Springa trwałe, losowo generowane sekrety i hasło przez środowisko. Pliki z wartościami pozostają wyłącznie lokalnie w `.demo/`.
+
+Decyzja z 6 listopada 2026: opcjonalny profil `demo` przygotowuje dane prezentacyjne (konta, katalog, magazyn, koszyk i zamówienia). Grupa profilu włącza `local`; zwykły start nie wykonuje seeda. Hasła nowych kont pochodzą z `DEMO_PASSWORD`, bez stałego hasła w kodzie. Administrator powstaje przez istniejący bootstrap tylko przy braku administratora; istniejące konta nie są przejmowane ani resetowane. V10 tworzy wyłącznie tabelę znacznika wykonania, a dane są tworzone przez serwisy w jednej transakcji z blokadą bazodanową. Kolejny start nie odtwarza stanów ani nie zmienia cen, kont i zamówień. Instrukcja: `docs/demo.md`.
+
 Pierwszy etap: konta, profil i adres, zaproszenia pracowników oraz reset haseł przez administratora. Uwierzytelnianie zostało zmienione na JWT Bearer ważny 15 minut, bez refresh tokenów; V3 usuwa nieużywane tabele sesji. Kontrakt: `docs/backend-api.md`.
 
 Drugi etap: publiczny katalog z filtrami, paginacją i sortowaniem po cenie; odczyt wszystkich produktów dla personelu; tworzenie i edycja parametrów przez pracownika; cena i dopuszczenie do sprzedaży przez admina; przyjęcia, korekty i historia magazynu. V4 tworzy `manufacturer`, `tire_product`, `inventory` i `inventory_change`. Zdjęcie jest opcjonalnym adresem HTTPS, bez uploadu plików. Nowy produkt i zerowy stan powstają atomowo. Ruch magazynowy wymaga UUID `operationId`; ponowienie tej samej operacji nie zmienia stanu ponownie. Szczegóły walidacji i kontrakt: `docs/catalog-api.md`.

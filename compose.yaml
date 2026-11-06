@@ -1,3 +1,37 @@
-name: tireshop
-include:
-  - backend/compose.yaml
+name: tireshop-demo
+services:
+  backend:
+    build: ./backend
+    environment:
+      SPRING_PROFILES_ACTIVE: demo
+      SPRING_DOCKER_COMPOSE_ENABLED: "false"
+      DB_URL: jdbc:postgresql://postgres:5432/tireshop
+      MAIL_HOST: mailpit
+    ports:
+      - "127.0.0.1:8081:8080"
+    volumes:
+      - ./.demo:/demo
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: tireshop
+      POSTGRES_USER: tireshop
+      POSTGRES_PASSWORD: tireshop_local
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tireshop -d tireshop"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  mailpit:
+    image: axllent/mailpit:v1.31.4
+    ports:
+      - "127.0.0.1:8026:8025"
+volumes:
+  postgres_data:
