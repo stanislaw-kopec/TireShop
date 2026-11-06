@@ -46,6 +46,14 @@ Pracownik i klient demo są tworzeni jako aktywni, bez procesu zaproszenia. Jest
 
 Rezerwacja `PENDING_PAYMENT` wygasa po normalnych 15 minutach. Restart jej nie przedłuża ani nie tworzy nowego zamówienia. Wszystkie płatności są symulowane; kwoty i daty powstają przez zwykłe reguły aplikacji. Nie zmieniamy zegara ani historycznych statusów bez przejść domenowych.
 
+## Pokaz sklepu w przeglądarce
+
+1. Po `docker compose up` otwórz [sklep](http://localhost:4200). W katalogu wybierz szerokość opony, otwórz szczegóły modelu i dodaj jedną sztukę. W koszyku zobaczysz 20 zł za dostawę.
+2. Przejdź dalej jako gość. Podaj adres i testowy e-mail, sprawdź podsumowanie i kliknij „Zapłać”. W symulatorze możesz odrzucić pierwszą próbę, ponowić ją i zatwierdzić. Zachowaj numer zamówienia i otwórz link do śledzenia. Kopię linku znajdziesz w [lokalnej skrzynce Mailpit](http://localhost:8026).
+3. W osobnej karcie dodaj jedną oponę jako gość i zaloguj się jako `customer@demo.test`. Na świeżej bazie konto ma już trzy sztuki. Po połączeniu koszyków zobaczysz cztery sztuki i darmową dostawę. Kup opony z użyciem adresu z konta, a po zapłacie odszukaj numer zamówienia w historii.
+4. Zaloguj się jako `employee@demo.test` w osobnej karcie. W panelu pracownika znajdź oba zamówienia po ich numerach. Dla każdego rozpocznij realizację, podaj numer przesyłki, oznacz jako wysłane, a następnie jako doręczone.
+5. Odśwież status na stronie śledzenia gościa i otwórz ponownie historię klienta. W obu miejscach sprawdź status „Doręczone” oraz przypisany numer przesyłki.
+
 ## Przykładowy pokaz w Swaggerze
 
 1. Otwórz Swagger UI na porcie 8081 (8080 przy starcie z IDE). Publicznie pobierz `/api/tires`, pokaż filtry sezonu/rozmiaru i sortowanie ceny.
