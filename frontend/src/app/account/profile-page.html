@@ -1,6 +1,7 @@
 <h1>Moje konto</h1>
 @if (auth.profile(); as profile) {
   <p>{{ profile.email }}</p>
+  <a routerLink="/konto/zamowienia">Historia zamówień</a>
   <form ngNativeValidate (ngSubmit)="save('profile')">
     <fieldset [disabled]="busy()"><legend>Dane klienta</legend>
       <label>Imię<input name="firstName" autocomplete="given-name" required maxlength="100" [(ngModel)]="firstName"></label>

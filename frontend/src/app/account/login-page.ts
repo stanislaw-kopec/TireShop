@@ -41,10 +41,12 @@ export class LoginPage {
         await this.auth.login(this.email.trim(), this.password);
         this.password = '';
         const orderId = this.route.snapshot.queryParamMap.get('zamowienie');
-        if (orderId && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(orderId)) {
+        const history = this.route.snapshot.queryParamMap.get('powrot') === 'historia';
+        const orderLink = orderId && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(orderId);
+        if (orderLink || history) {
           await this.cart.open();
           if (this.cart.mergeState() === 'none') {
-            await this.router.navigate(['/zamowienia/konto', orderId]);
+            await this.router.navigate(orderLink ? ['/zamowienia/konto', orderId] : ['/konto/zamowienia']);
             return;
           }
         }

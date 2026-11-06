@@ -16,11 +16,11 @@ Pierwszy link jest ważny 90 dni od paid_at. Śledzenie działa niezależnie od 
 
 Odpowiedzi tych endpointów mają Cache-Control: no-store. Format błędów to ProblemDetail. Swagger ma osobne schematy purchaseToken oraz trackingToken.
 
-## Link w przyszłym Angularze
+## Link w Angularze
 
 Domyślny adres to `http://localhost:4200/track-order#token=...`. Token jest we fragmencie, który przeglądarka nie wysyła do serwera przy otwieraniu strony. Angular ma odczytać go, usunąć fragment z paska adresu przez history.replaceState i przekazać token w nagłówku X-Tracking-Token do API. Nie umieszczaj go w query, logach ani systemach analitycznych. Backend nie przyjmuje tokenu śledzenia z query, body ani cookie. CORS dopuszcza ten nagłówek dla skonfigurowanych originów.
 
-Frontend nie jest jeszcze implementowany. Obecnie link można odebrać przez endpoint potwierdzenia lub Mailpit, a jego token wkleić w Authorize → trackingToken w Swaggerze. Nie ma integracji z kurierem. V8 dodaje pole tracking_number do zamówienia; V9 udostępnia jego uzupełnianie przy wysyłce i korektę przed doręczeniem w [API pracownika](fulfillment-api.md).
+Link na ekranie potwierdzenia lub w wiadomości z Mailpit prowadzi do widoku śledzenia. Formularz na tej samej stronie pozwala poprosić o odnowienie linku po podaniu numeru zamówienia i adresu e-mail z zakupu. Nie ma integracji z kurierem. V8 dodaje pole tracking_number do zamówienia; V9 udostępnia jego uzupełnianie przy wysyłce i korektę przed doręczeniem w [API pracownika](fulfillment-api.md).
 
 ## Odnowienie
 

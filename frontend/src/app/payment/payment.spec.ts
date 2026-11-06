@@ -13,7 +13,7 @@ const payUrl = path + '/payments';
 const history = payUrl + '?page=0&size=1';
 const pending = { id: 'p1', orderId: id, amountGross: 220, currency: 'PLN', status: 'PENDING', simulation: true };
 const order = { id, orderNumber: 'TS-order-a', status: 'PENDING_PAYMENT',
-  reservationExpiresAt: '2030-01-01T10:15:00Z', snapshot: { totalGross: 220 } };
+  reservationExpiresAt: '2030-01-01T10:15:00Z', snapshot: { totalGross: 220, items: [] } };
 const route = '/zamowienia/gosc/' + id + '/platnosc';
 
 describe('Symulator płatności', () => {

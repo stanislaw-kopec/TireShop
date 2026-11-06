@@ -26,7 +26,14 @@ Po kliknięciu „Zapłać” sklep otwiera symulator z kwotą zamówienia. Wybi
 
 Po potwierdzeniu gość może otworzyć „Śledź zamówienie”, także z wiadomości w lokalnym Mailpit. Klient konta widzi numer i aktualny status zamówienia. Odświeżenie potwierdzenia pobiera aktualne dane. [API płatności](../docs/payment-api.md).
 
+## Historia i śledzenie zamówień
+
+W sekcji **Moje konto → Historia zamówień** klient widzi datę, kwotę, status i numer przesyłki. Numer zamówienia otwiera szczegóły zakupu. Klient lub gość z dostępem do szczegółów zakupu może użyć „Anuluj zamówienie”, dopóki zamówienie oczekuje na płatność.
+
+Jeśli link gościa wygasł lub zaginął, wybierz „Śledzenie zamówienia gościa” w stopce. Wpisz numer zamówienia i e-mail z zakupu. Nowy link jest dostarczany na zapisany adres. W demo można otworzyć wiadomość w [lokalnej skrzynce Mailpit](http://localhost:8026).
+
 ## Jak działa komponent karty
+
 
 W [szablonie katalogu](src/app/catalog/catalog-page.html) pętla `@for` tworzy instancję karty dla każdej opony z odpowiedzi API. W Reakcie podobny zapis to `<TireCard tire={tire} onDetailsRequested={t => showDetails(t.id)} />`.
 

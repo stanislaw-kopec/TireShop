@@ -53,7 +53,7 @@ Rezerwacja `PENDING_PAYMENT` wygasa po normalnych 15 minutach. Restart jej nie p
 3. Utwórz próbę płatności i potwierdź `SUCCEEDED` zgodnie z [API płatności](payment-api.md).
 4. Zaloguj pracownika (zastąp token w Authorize). Pokaż zamówienie `PAID`, przejdź do `PROCESSING`, następnie `SHIPPED` z numerem przesyłki i `DELIVERED`. Każda nowa operacja potrzebuje nowego UUID `operationId`.
 5. Zaloguj administratora. Pokaż zmianę ceny i dopuszczenie produktu do sprzedaży; administrator nie dziedziczy operacji pracownika.
-6. W Mailpit na porcie 8026 (8025 przy starcie z IDE) otwórz wiadomość do `guest@demo.test`. Do czasu powstania Angulara użyj fragmentu `token=...` z linku jako `X-Tracking-Token` w API śledzenia.
+6. W Mailpit na porcie 8026 (8025 przy starcie z IDE) otwórz wiadomość do `guest@demo.test`. Otwórz link w nowej karcie, aby zobaczyć status. Na stronie „Śledzenie zamówienia gościa” możesz podać numer zamówienia z wiadomości i e-mail użyty przy zakupie, aby otrzymać nowy link w Mailpit.
 
 ## Bezpieczne ponowienie i błędy
 

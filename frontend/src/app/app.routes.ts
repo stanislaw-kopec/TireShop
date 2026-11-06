@@ -5,6 +5,7 @@ import { TireDetails } from './catalog/tire-details';
 import { CartPage } from './cart/cart-page';
 import { LoginPage } from './account/login-page';
 import { ProfilePage } from './account/profile-page';
+import { OrderHistory } from './account/order-history';
 import { CheckoutPage } from './checkout/checkout-page';
 import { OrderPage } from './checkout/order-page';
 import { PaymentPage } from './payment/payment-page';
@@ -22,4 +23,5 @@ export const routes: Routes = [
   { path: 'zamowienia/konto/:id', component: OrderPage, title: 'Zamówienie | TireShop' },
   { path: 'logowanie', component: LoginPage, title: 'Logowanie | TireShop' },
   { path: 'konto', component: ProfilePage, title: 'Moje konto | TireShop' },
+  { path: 'konto/zamowienia', component: OrderHistory, title: 'Historia zamówień | TireShop' },
 ];

@@ -17,8 +17,12 @@ interface Snapshot {
 export interface Quote { id: string; expiresAt: string; snapshot: Snapshot; purchaseToken: string | null; accessExpiresAt: string | null }
 export interface Order {
   id: string; orderNumber: string; status: 'PENDING_PAYMENT' | 'CANCELLED' | 'PAID' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED';
-  reservationExpiresAt: string; snapshot: Snapshot;
+  reservationExpiresAt: string; snapshot: Snapshot; createdAt: string;
+  trackingNumber: string | null; cancellationReason: 'CUSTOMER' | 'EXPIRED' | null;
 }
+export type OrderSummary = Pick<Order, 'id' | 'orderNumber' | 'status' | 'createdAt' | 'trackingNumber'>
+  & { totalGross: number; currency: string };
+interface OrderList { items: OrderSummary[]; page: number; totalPages: number }
 export interface Attempt {
   quoteId: string; checkoutKey: string; purchaseToken: string | null; submitted: boolean; orderId?: string;
 }
@@ -41,6 +45,7 @@ export function checkoutError(error: unknown) {
       case 'CART_PRODUCT_UNAVAILABLE': case 'INSUFFICIENT_STOCK': return 'Wybrana liczba opon jest już niedostępna. Popraw ilości w koszyku.';
       case 'CART_NOT_FOUND': return 'Koszyk gościa wygasł. Wróć do koszyka, aby zacząć ponownie.';
       case 'ORDER_NOT_FOUND': return 'Brak dostępu do tego zakupu lub upłynął termin dostępu.';
+      case 'ORDER_NOT_CANCELLABLE': return 'Status zamówienia zmienił się. Anulowanie jest możliwe tylko przed zapłatą.';
     }
     if (error.status === 401) return 'Zaloguj się ponownie na konto użyte przy zakupie.';
     if (error.status === 403) return 'Brak uprawnień do tego zakupu.';
@@ -55,11 +60,25 @@ export class CheckoutApi {
   private readonly http = inject(HttpClient);
   private readonly auth = inject(AccountService);
 
+  history(accountId: string, page: number) {
+    const headers = this.accountHeaders(accountId);
+    return this.http.get<OrderList>('/api/orders', { headers, params: { page, size: 20 } });
+  }
+
+  cancel(owner: string, id: string) {
+    const { url, headers } = this.orderResource(owner, id);
+    return firstValueFrom(this.http.post<Order>(url + '/cancellation', null, { headers }));
+  }
+
   private headers(owner: string, guestHeader: string, guestToken: string | null): Record<string, string> {
     if (owner === 'guest') {
       if (!guestToken) throw new HttpErrorResponse({ status: 404, error: { code: guestHeader === 'X-Cart-Token' ? 'CART_NOT_FOUND' : 'ORDER_NOT_FOUND' } });
       return { [guestHeader]: guestToken };
     }
+    return this.accountHeaders(owner);
+  }
+
+  private accountHeaders(owner: string) {
     const jwt = this.auth.token();
     if (!jwt || owner !== this.auth.profile()?.id) throw new HttpErrorResponse({ status: 401 });
     return bearer(jwt);
