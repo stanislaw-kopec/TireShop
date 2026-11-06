@@ -1,0 +1,9 @@
+:host { display: block; max-width: 56rem; margin: 0 auto; }
+nav, .controls { display: flex; align-items: center; flex-wrap: wrap; gap: .65rem; margin-block: 1rem; }
+nav button[aria-pressed="true"] { background: #234a3b; color: white; }
+select { font: inherit; padding: .55rem; border: 1px solid #8b978d; border-radius: .4rem; }
+ul { list-style: none; padding: 0; }
+li { padding-block: .7rem; border-bottom: 1px solid #d6d8ce; overflow-wrap: anywhere; }
+li p { margin: .35rem 0; }
+form { max-width: 36rem; }
+p { overflow-wrap: anywhere; }

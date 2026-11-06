@@ -5,6 +5,7 @@ import { Subject, combineLatest, startWith, switchMap } from 'rxjs';
 import { CatalogApi, loadState, priceFormat } from './catalog-api';
 import { TirePhoto } from './tire-photo';
 import { AddToCart } from '../cart/add-to-cart';
+import { AccountService } from '../account/account';
 
 @Component({
   imports: [RouterLink, TirePhoto, AddToCart],
@@ -20,6 +21,7 @@ import { AddToCart } from '../cart/add-to-cart';
   `,
 })
 export class TireDetails {
+  protected readonly auth = inject(AccountService);
   private readonly route = inject(ActivatedRoute);
   private readonly api = inject(CatalogApi);
   protected readonly retry = new Subject<void>();

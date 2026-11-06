@@ -1,0 +1,42 @@
+<h1>{{ employee ? 'Panel pracownika' : 'Panel administratora' }}</h1>
+<nav aria-label="Sekcje panelu">
+  <button [disabled]="action.busy()" [attr.aria-pressed]="tab() === 'tires'" (click)="show('tires')">Opony</button>
+  @if (employee) {
+    <button [disabled]="action.busy()" [attr.aria-pressed]="tab() === 'orders'" (click)="show('orders')">Zamówienia</button>
+  } @else {
+    <button [disabled]="action.busy()" [attr.aria-pressed]="tab() === 'accounts'" (click)="show('accounts')">Konta</button>
+  }
+</nav>
+@if (tab() === 'accounts') { <app-admin-accounts /> }
+@else if (editing()) { <app-tire-editor [initial]="selected()" (close)="list(tires()?.page ?? 0)" /> }
+@else if (orderId()) { <app-fulfillment-editor [id]="orderId()" (close)="list(orders()?.page ?? 0)" /> }
+@else {
+  @if (action.message()) { <p role="alert">{{ action.message() }}</p><button (click)="list(0)">Spróbuj ponownie</button> }
+  @if (tab() === 'tires') {
+    @if (employee) { <button class="primary" [disabled]="action.busy()" (click)="edit(null)">Dodaj oponę</button> }
+    @if (tires(); as result) {
+      <ul>@for (tire of result.items; track tire.id) {
+        <li><button (click)="edit(tire)">{{ tire.manufacturer }} {{ tire.model }}</button>
+          <p>{{ tire.widthMm }}/{{ tire.aspectRatio }} R{{ tire.rimDiameterIn }} · {{ tire.priceGross === null ? 'Brak ceny' : money.format(tire.priceGross) }}
+            · {{ tire.onSale ? 'W sprzedaży' : 'Poza sprzedażą' }} · Dostępne: {{ tire.availableQuantity }}</p></li>
+      } @empty { <li>Brak produktów na tej stronie.</li> }</ul>
+    }
+  } @else {
+    <label>Status zamówienia<select name="status" [ngModel]="status" (ngModelChange)="status = $event; list(0)" [disabled]="action.busy()">
+      <option value="">Wszystkie</option>@for (option of filters; track option[0]) { <option [value]="option[0]">{{ option[1] }}</option> }
+    </select></label>
+    @if (orders(); as result) {
+      <ul>@for (order of result.items; track order.id) {
+        <li><button (click)="orderId.set(order.id)">{{ order.orderNumber }}</button>
+          <p>{{ statuses[order.status] }} · {{ money.format(order.totalGross) }}</p></li>
+      } @empty { <li>Brak zamówień na tej stronie.</li> }</ul>
+    }
+  }
+  @if (action.busy()) { <p role="status">Pobieranie danych…</p> }
+  @let page = tires() ?? orders();
+  @if (page && (page.totalPages > 1 || page.page > 0)) {
+    <div class="controls"><button [disabled]="page.page === 0" (click)="list(page.page - 1)">Poprzednia</button>
+      <span>Strona {{ page.page + 1 }}</span>
+      <button [disabled]="page.page + 1 >= page.totalPages" (click)="list(page.page + 1)">Następna</button></div>
+  }
+}

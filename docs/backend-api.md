@@ -95,6 +95,8 @@ Zaproszenie pracownika: `email`, `firstName`, `lastName`. Administrator nie usta
 
 Ustawienie hasła po zaproszeniu lub resecie:
 
+Nowe wiadomości kierują na `/set-password#token=…`. Angular usuwa token z paska adresu i przekazuje go w żądaniu ustawienia hasła. Widok obsługuje również wcześniej wysłane linki z parametrem `?token=…`.
+
 ```json
 {
   "token": "token-odczytany-z-linku-w-wiadomosci",

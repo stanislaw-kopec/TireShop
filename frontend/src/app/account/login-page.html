@@ -1,6 +1,6 @@
 @if (auth.profile()) {
   <h1>Jesteś zalogowany</h1>
-  <a routerLink="/konto">Przejdź do swojego konta</a>
+  <a [routerLink]="auth.staff() ? '/personel' : '/konto'">Przejdź do swojego panelu</a>
 } @else {
   <h1>{{ registerMode() ? 'Załóż konto' : 'Zaloguj się' }}</h1>
   <form ngNativeValidate (ngSubmit)="submit()">

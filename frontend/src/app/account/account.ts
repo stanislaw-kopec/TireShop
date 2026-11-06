@@ -7,10 +7,11 @@ export interface Profile {
   lastName: string;
   phone: string | null;
 }
-interface Account extends Profile {
+export interface Account extends Profile {
   id: string;
   email: string;
   role: 'CUSTOMER' | 'EMPLOYEE' | 'ADMIN';
+  status: 'ACTIVE' | 'DISABLED' | 'INVITED';
 }
 export interface Address {
   recipientName: string;
@@ -40,6 +41,7 @@ export class AccountService {
   private readonly session = signal<{ token: string; account: Account } | null>(null);
   readonly token = computed(() => this.session()?.token ?? null);
   readonly profile = computed(() => this.session()?.account ?? null);
+  readonly staff = computed(() => this.profile()?.role === 'ADMIN' || this.profile()?.role === 'EMPLOYEE');
   readonly notice = signal('');
   private timer?: ReturnType<typeof setTimeout>;
 
@@ -52,7 +54,6 @@ export class AccountService {
       '/api/auth/login', { email, password }));
     const deadline = Date.now() + result.expiresIn * 1000;
     const account = await firstValueFrom(this.http.get<Account>('/api/account/me', { headers: bearer(result.accessToken) }));
-    if (account.role !== 'CUSTOMER') throw new HttpErrorResponse({ status: 403 });
     clearTimeout(this.timer);
     this.notice.set('');
     this.session.set({ token: result.accessToken, account });
@@ -61,7 +62,7 @@ export class AccountService {
 
   expire(token: string) {
     if (this.token() !== token) return;
-    this.clear();
+    this.clearLocalLogin();
     this.notice.set('Logowanie wygasło. Zaloguj się ponownie, aby wrócić do swojego konta.');
   }
 
@@ -69,7 +70,7 @@ export class AccountService {
     const token = this.token();
     if (!token) return;
     await firstValueFrom(this.http.post('/api/auth/logout', null, { headers: bearer(token) }));
-    if (this.token() === token) this.clear();
+    if (this.token() === token) this.clearLocalLogin();
   }
 
   async updateProfile(profile: Profile) {
@@ -97,8 +98,9 @@ export class AccountService {
     return token;
   }
 
-  private clear() {
+  clearLocalLogin() {
     clearTimeout(this.timer);
+    this.notice.set('');
     this.session.set(null);
   }
 }

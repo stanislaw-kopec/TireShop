@@ -410,7 +410,7 @@ class AccountIntegrationTests {
     private String sentToken() {
         var captor = org.mockito.ArgumentCaptor.forClass(SimpleMailMessage.class);
         verify(mail).send(captor.capture());
-        var matcher = Pattern.compile("token=([A-Za-z0-9_-]{43})").matcher(captor.getValue().getText());
+        var matcher = Pattern.compile("#token=([A-Za-z0-9_-]{43})").matcher(captor.getValue().getText());
         assertThat(matcher.find()).isTrue();
         return matcher.group(1);
     }

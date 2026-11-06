@@ -4,9 +4,10 @@
     TireShop
   </a>
   <nav aria-label="Zakupy i konto">
-    <a routerLink="/koszyk">Koszyk @if (cart.count() !== undefined) { ({{ cart.count() }}) }</a>
+    @if (!auth.staff()) { <a routerLink="/koszyk">Koszyk @if (cart.count() !== undefined) { ({{ cart.count() }}) }</a> }
     @if (auth.profile()) {
-      <a routerLink="/konto">Moje konto</a>
+      @if (auth.staff()) { <a routerLink="/personel">Panel personelu</a> }
+      @else { <a routerLink="/konto">Moje konto</a> }
       <button type="button" (click)="logout()" [disabled]="loggingOut() || cart.busy()">Wyloguj się</button>
     } @else {
       <a routerLink="/logowanie">Zaloguj się</a>

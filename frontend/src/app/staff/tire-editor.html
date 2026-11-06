@@ -1,0 +1,40 @@
+<button type="button" [disabled]="action.busy()" (click)="close.emit()">← Lista opon</button>
+@let product = tire();
+<h2>{{ product ? product.manufacturer + ' ' + product.model : 'Nowa opona' }}</h2>
+@if (action.message()) { <p role="status">{{ action.message() }}</p> }
+@if (employee) {
+  <form ngNativeValidate (ngSubmit)="saveSpecs()"><fieldset [disabled]="action.busy()"><legend>Parametry opony</legend>
+    <label>Producent<input name="manufacturer" required maxlength="100" [(ngModel)]="specs.manufacturer"></label>
+    <label>Model<input name="model" required maxlength="120" [(ngModel)]="specs.model"></label>
+    <label>Szerokość (mm)<input type="number" name="widthMm" required min="100" max="500" [(ngModel)]="specs.widthMm"></label>
+    <label>Profil (%)<input type="number" name="aspectRatio" required min="20" max="100" [(ngModel)]="specs.aspectRatio"></label>
+    <label>Średnica (cale)<input type="number" name="rimDiameterIn" required min="10" max="30" [(ngModel)]="specs.rimDiameterIn"></label>
+    <label>Sezon<select name="season" [(ngModel)]="specs.season"><option value="SUMMER">Letnia</option><option value="WINTER">Zimowa</option><option value="ALL_SEASON">Całoroczna</option></select></label>
+    <label>Adres zdjęcia (opcjonalnie)<input type="url" name="imageUrl" maxlength="2048" pattern="https://.+" [(ngModel)]="specs.imageUrl"></label>
+    <button class="primary">{{ product ? 'Zapisz parametry' : 'Utwórz oponę' }}</button>
+  </fieldset></form>
+  @if (product) {
+    <h2>Magazyn</h2>
+    @if (stock(); as s) { <p>Stan fizyczny: {{ s.onHand }} · Zarezerwowane: {{ s.reserved }} · Dostępne: {{ s.available }}</p> }
+    <button (click)="refreshStock()" [disabled]="action.busy()">Odśwież stan</button>
+    @if (pending(); as op) {
+      <p>Oczekujący zapis: {{ op['quantityDelta'] }} szt. · {{ op['reason'] }}</p>
+      <button (click)="move(true)" [disabled]="action.busy()">Ponów ten sam zapis</button>
+    } @else {
+      <form ngNativeValidate (ngSubmit)="move()"><fieldset [disabled]="action.busy()"><legend>Ruch magazynowy</legend>
+        <label>Rodzaj<select name="type" [(ngModel)]="type"><option value="RECEIPT">Przyjęcie dostawy</option><option value="CORRECTION">Korekta</option></select></label>
+        <label>Zmiana liczby sztuk<input name="delta" type="number" required [min]="type === 'RECEIPT' ? 1 : -2147483647" max="2147483647" [(ngModel)]="delta"></label>
+        <label>Powód<input name="reason" required maxlength="500" [(ngModel)]="reason"></label>
+        <button class="primary" [disabled]="delta === 0">Zapisz ruch</button>
+      </fieldset></form>
+    }
+  }
+} @else if (product) {
+  <p>{{ product.widthMm }}/{{ product.aspectRatio }} R{{ product.rimDiameterIn }} · {{ seasons[product.season] }} · Dostępne: {{ product.availableQuantity }} szt.</p>
+  <form ngNativeValidate (ngSubmit)="offer('price')"><fieldset [disabled]="action.busy()"><legend>Cena</legend>
+    <label>Cena brutto za sztukę (PLN)<input type="number" name="price" min="0.01" max="9999999999.99" step="0.01" required [(ngModel)]="price"></label>
+    <button class="primary">Zapisz cenę</button>
+  </fieldset></form>
+  <p>{{ product.onSale ? 'Produkt w sprzedaży' : 'Produkt poza sprzedażą' }} · {{ product.priceGross === null ? 'Brak ceny' : money.format(product.priceGross) }}</p>
+  <button [disabled]="action.busy() || (!product.onSale && product.priceGross === null)" (click)="offer('sale')">{{ product.onSale ? 'Wycofaj ze sprzedaży' : 'Dopuść do sprzedaży' }}</button>
+}

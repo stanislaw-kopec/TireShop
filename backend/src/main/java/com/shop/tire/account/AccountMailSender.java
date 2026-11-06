@@ -24,7 +24,7 @@ class AccountMailSender {
         message.setFrom(from);
         message.setTo(email);
         message.setSubject(invitation ? "TireShop — zaproszenie pracownika" : "TireShop — reset hasła");
-        var link = UriComponentsBuilder.fromUriString(linkUrl).queryParam("token", token).build().toUriString();
+        var link = UriComponentsBuilder.fromUriString(linkUrl).fragment("token=" + token).build().toUriString();
         message.setText("Ustaw hasło, korzystając z jednorazowego linku:\n" + link
                 + "\nJeśli wiadomość Cię nie dotyczy, zignoruj ją.");
         sender.send(message);

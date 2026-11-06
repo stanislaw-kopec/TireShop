@@ -40,6 +40,10 @@ export class LoginPage {
       } else {
         await this.auth.login(this.email.trim(), this.password);
         this.password = '';
+        if (this.auth.staff()) {
+          await this.router.navigateByUrl('/personel');
+          return;
+        }
         const orderId = this.route.snapshot.queryParamMap.get('zamowienie');
         const history = this.route.snapshot.queryParamMap.get('powrot') === 'historia';
         const orderLink = orderId && /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(orderId);

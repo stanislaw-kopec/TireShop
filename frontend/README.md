@@ -32,8 +32,14 @@ W sekcji **Moje konto → Historia zamówień** klient widzi datę, kwotę, stat
 
 Jeśli link gościa wygasł lub zaginął, wybierz „Śledzenie zamówienia gościa” w stopce. Wpisz numer zamówienia i e-mail z zakupu. Nowy link jest dostarczany na zapisany adres. W demo można otworzyć wiadomość w [lokalnej skrzynce Mailpit](http://localhost:8026).
 
-## Jak działa komponent karty
+## Panele personelu
 
+Po zalogowaniu na konto `employee@demo.test` otwiera się panel pracownika. Wybierz „Opony”, aby utworzyć produkt, poprawić parametry, przyjąć dostawę lub skorygować stan. W „Zamówieniach” możesz filtrować po statusie, sprawdzić adres, rozpocząć realizację, wpisać numer przesyłki i potwierdzić doręczenie. Numer przesyłki można poprawić do czasu doręczenia.
+
+Konto `admin@demo.test` prowadzi do panelu administratora. Cenę i dopuszczenie do sprzedaży zapisuje się osobno. W zakładce „Konta” administrator może zaprosić pracownika lub wyszukać klienta albo pracownika po e-mailu i wysłać jednorazowy link. Właściciel konta otwiera wiadomość w [Mailpit](http://localhost:8026) i ustawia własne hasło. [Dane do logowania w demo](../docs/demo.md#konta).
+
+
+## Jak działa komponent karty
 
 W [szablonie katalogu](src/app/catalog/catalog-page.html) pętla `@for` tworzy instancję karty dla każdej opony z odpowiedzi API. W Reakcie podobny zapis to `<TireCard tire={tire} onDetailsRequested={t => showDetails(t.id)} />`.
 
