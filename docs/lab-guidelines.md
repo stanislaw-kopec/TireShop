@@ -4,6 +4,8 @@ Aktualizacja: 4 listopada 2026. Dokument opisuje przełożenie zasad z czterech 
 
 ## Źródła i zakres zastosowania
 
+Uzupełnienie z 18 listopada 2026 obejmuje pierwszy etap dostosowania do materiału 05, czyli CI. Workflow `.github/workflows/ci.yml` sprawdza backend, frontend i budowanie obu obrazów Docker po pushu do `main` oraz przy pull requeście. Maven wrapper i JUnit zastępują polecenia testowe Expressa. PostgreSQL 17 jest uruchamiany przez istniejące Testcontainers w zadaniu backendu. Taki wariant różni się od wymaganego w zadaniu 05 wpisu `services: postgres` i wymaga uzgodnienia przy dosłownym ocenianiu konfiguracji. Pokaz czerwonego i zielonego uruchomienia w jednym PR oraz zrzuty do sprawozdania wymagają osobnego wykonania na GitHub.
+
 | Materiał | Wykorzystane części | Zastosowanie w TireShop |
 |---|---|---|
 | 01 — ExpressJS i pierwsze REST API | s. 3–4, 10–18, 19–21: HTTP, statusy, params/query/body, CRUD i reguły biznesowe | Rzeczownikowe ścieżki, właściwe metody/statusy, walidacja backendu, osobne operacje biznesowe. |

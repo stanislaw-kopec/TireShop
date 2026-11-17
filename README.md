@@ -1,5 +1,7 @@
 # TireShop
 
+[![CI](https://github.com/stanislaw-kopec/TireShop/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/stanislaw-kopec/TireShop/actions/workflows/ci.yml)
+
 ## Demo w Dockerze
 
 Włącz Docker Desktop i w głównym katalogu `TireShop` uruchom:
@@ -109,6 +111,10 @@ W profilu `external` skonfiguruj także `MAIL_HOST`, `MAIL_PORT`, `MAIL_FROM`, o
 Wysyłka zaproszeń/resetów jest synchroniczna: brak dostępu do poczty zwraca 503 i wycofuje zmianę tokenu/konta, umożliwiając ponowienie. Te wiadomości nie korzystają z kolejki; trwała kolejka i automatyczne ponowienia dotyczą linków śledzenia zamówień gościa.
 
 ## Testy i budowanie
+
+GitHub Actions uruchamia workflow `CI` po pushu do `main` i dla pull requestów. Dwa równoległe zadania sprawdzają backend na Java 25 oraz frontend na Node.js 24. Backend wykonuje Maven `verify`, frontend instaluje zależności przez `npm ci`, uruchamia testy bez trybu obserwowania i buduje Angulara. Po udanych sprawdzeniach każde zadanie buduje odpowiedni obraz Docker. Wyniki są dostępne w zakładce **Actions** repozytorium i przy pull requeście.
+
+Testcontainers uruchamia w CI własne kontenery PostgreSQL 17 oraz Mailpit. To odpowiednik osobnej bazy testowej z materiału 05. Workflow korzysta z istniejącej konfiguracji testów i generowanych przez nie sekretów. Pierwszy wynik oraz badge pojawią się po wypchnięciu pliku `.github/workflows/ci.yml` do GitHub. Automatyczne blokowanie scalania wymaga ustawienia tych zadań jako wymaganych kontroli w regułach gałęzi `main`.
 
 Z katalogu `backend`:
 
