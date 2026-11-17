@@ -122,6 +122,10 @@ Z katalogu `backend`:
 .\mvnw.cmd verify
 ```
 
+Osobne uruchomienie testów jednostkowych, działające bez Dockera i PostgreSQL, używa `./mvnw.cmd -Punit test`. Same testy integracyjne uruchomisz przez `./mvnw.cmd -Pintegration verify` z działającym Dockerem. Zwykłe `verify`, używane również w CI, wykonuje oba zestawy. Na Linux/macOS użyj `sh ./mvnw` zamiast `./mvnw.cmd`. Profile `unit` i `integration` są profilami Maven; uruchamiaj je osobno. Klasy testów integracyjnych mają nazwy zakończone `IntegrationTests`.
+
+Testy koszyka i anulowania zamówień używają repozytoriów w pamięci, osobnego stanu dla każdego testu i ustalonego `Clock`. Sprawdzają m.in. dostawę dla 3/4 sztuk różnych produktów, dostępność, scalanie i ponowienia, termin ważności koszyka, właściciela zamówienia oraz jednokrotne zwolnienie rezerwacji. Asercje błędów opierają się na `code`. Sprawdzenie ról Spring Security, transakcji i blokad pozostaje w testach HTTP z PostgreSQL.
+
 Testy HTTP używają osobnego PostgreSQL 17 uruchamianego przez Testcontainers. Wymagają działającego Dockera i nie dotykają lokalnej bazy sklepu. Sprawdzają migracje, JWT (w tym błędne i wygasłe tokeny), brak sesji, uprawnienia, CORS, konta, katalog, magazyn, koszyki, zamówienia, płatności i realizację. Obejmują także ponowienia, rollback i równoległe operacje na stanie. Sekrety są generowane wyłącznie w testach; nie trzeba ustawiać własnego `JWT_SECRET` ani `TRACKING_SECRET`.
 
 Większość testów używa profilu `test` i kontrolowanego nadajnika poczty, m.in. do wymuszania awarii SMTP. `MvpJourneyIntegrationTests` uruchamia pełną aplikację w profilu `external` z izolowanymi PostgreSQL i Mailpit, wykonuje zakupy klienta/gościa przez HTTP i sprawdza prawdziwą wysyłkę SMTP. Uruchamia aplikację ponownie na tej samej bazie, aby sprawdzić migracje, trwałość danych, odzyskanie linku i wykonanie zaległych zadań. [Wynik końcowej weryfikacji MVP](docs/mvp-verification.md).
