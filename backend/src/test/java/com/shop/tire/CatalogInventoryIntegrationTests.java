@@ -53,6 +53,8 @@ class CatalogInventoryIntegrationTests {
     @Autowired com.shop.tire.order.OrderService orders;
     @Autowired com.shop.tire.order.OrderMailDelivery delivery;
     @Autowired java.time.Clock clock;
+    @Autowired org.springframework.context.ApplicationEventPublisher events;
+    @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
     @MockitoBean JavaMailSender mail;
     private HttpClient http;
     private String employee;
@@ -69,6 +71,7 @@ class CatalogInventoryIntegrationTests {
         employeeId = UUID.fromString(json.readTree(Base64.getUrlDecoder().decode(employee.split("\\.")[1])).get("sub").asText());
         jdbc.update("UPDATE order_email_outbox SET next_attempt_at=now()+interval '1 day' WHERE status='PENDING'");
         jdbc.update("DELETE FROM tracking_request_limit");
+        jdbc.update("DELETE FROM audit_log");
     }
 
     @AfterEach
@@ -1287,6 +1290,92 @@ class CatalogInventoryIntegrationTests {
     private Map<String,Object> deliveryAddress() {
         return Map.of("recipientName","Test Customer","street","Testowa","buildingNumber","1","postalCode","00-001","city","Warszawa","countryCode","PL");
     }
+    @Test
+    void auditRecordsCreationAndCancellationExactlyOnceThroughHttp() throws Exception {
+        String product = offer(details(brand(), "Audit"), "100.00", 5);
+        expect(call(customer, "PUT", "/api/cart/items/" + product, Map.of("quantity", 1)), 200);
+        var quote = preview(customer);
+        var checkout = Map.of("quoteId", quote.get("id").asText(), "checkoutKey", UUID.randomUUID());
+        setPrice(product, "101.00");
+        problem(call(customer, "POST", "/api/orders", checkout), 409, "CHECKOUT_CHANGED");
+        assertThat(jdbc.queryForObject("select count(*) from audit_log", Integer.class)).isZero();
+        setPrice(product, "100.00");
+        var created = expect(call(customer, "POST", "/api/orders", checkout), 201);
+        expect(call(customer, "POST", "/api/orders", checkout), 201);
+        String orderId = created.get("id").asText();
+        expect(call(customer, "POST", "/api/orders/" + orderId + "/cancellation", null), 200);
+        expect(call(customer, "POST", "/api/orders/" + orderId + "/cancellation", null), 200);
+
+        var page = get(admin, "/api/admin/audit-log?size=1");
+        assertThat(page.get("totalElements").asInt()).isEqualTo(2);
+        assertThat(page.get("totalPages").asInt()).isEqualTo(2);
+        assertThat(page.get("items").size()).isEqualTo(1);
+        assertThat(page.at("/items/0/eventType").asText()).isEqualTo("ORDER_CANCELLED");
+        assertThat(page.at("/items/0/payload/orderId").asText()).isEqualTo(orderId);
+        assertThat(page.at("/items/0/payload/reason").asText()).isEqualTo("CUSTOMER");
+        assertThat(page.at("/items/0/payload/actorAccountId").asText()).isEqualTo(
+                jdbc.queryForObject("select account_id::text from customer_order where id=?", String.class, UUID.fromString(orderId)));
+        assertThat(get(admin, "/api/admin/audit-log?size=1&page=1").at("/items/0/eventType").asText()).isEqualTo("ORDER_CREATED");
+        var filtered = get(admin, "/api/admin/audit-log?eventType=ORDER_CREATED");
+        assertThat(filtered.get("totalElements").asInt()).isEqualTo(1);
+        assertThat(filtered.toString()).doesNotContain("order@example.test", "purchaseToken", "guestHash", "address");
+    }
+
+    @Test
+    void auditEndpointRequiresAdminAndValidPagination() throws Exception {
+        String path = "/api/admin/audit-log";
+        problem(call(null, "GET", path, null), 401, "AUTHENTICATION_REQUIRED");
+        problem(call(customer, "GET", path, null), 403, "ACCESS_DENIED");
+        problem(call(employee, "GET", path, null), 403, "ACCESS_DENIED");
+        for (String query : List.of("size=0", "size=101", "page=-1", "page=1000001")) {
+            problem(call(admin, "GET", path + "?" + query, null), 400, "VALIDATION_FAILED");
+        }
+        problem(call(admin, "GET", path + "?eventType=unknown", null), 400, "INVALID_PARAMETER");
+        var operation = get(null, "/v3/api-docs").path("paths").path(path).path("get");
+        assertThat(operation.path("security").toString()).contains("bearerAuth");
+        assertThat(operation.path("responses").has("400")).isTrue();
+        assertThat(get(admin, path).get("totalElements").asInt()).isZero();
+    }
+
+    @Test
+    void auditRunsOnlyAfterCommitAndIsDiscardedOnRollback() {
+        UUID orderId = UUID.randomUUID();
+        var transaction = new org.springframework.transaction.support.TransactionTemplate(transactions);
+        transaction.executeWithoutResult(status -> {
+            events.publishEvent(new com.shop.tire.order.OrderCreated(orderId, null, clock.instant()));
+            assertThat(jdbc.queryForObject("select count(*) from audit_log", Integer.class)).isZero();
+            status.setRollbackOnly();
+        });
+        assertThat(jdbc.queryForObject("select count(*) from audit_log", Integer.class)).isZero();
+        transaction.executeWithoutResult(status -> {
+            events.publishEvent(new com.shop.tire.order.OrderCreated(orderId, null, clock.instant()));
+            assertThat(jdbc.queryForObject("select count(*) from audit_log", Integer.class)).isZero();
+        });
+        assertThat(jdbc.queryForObject("select count(*) from audit_log", Integer.class)).isEqualTo(1);
+    }
+
+    @Test
+    void brokenAuditStorageDoesNotUndoHttpPurchaseOrCancellation() throws Exception {
+        String product = offer(details(brand(), "Audit failure"), "100.00", 5);
+        // Reject new audit entries without touching historical rows, in this isolated test database only.
+        jdbc.execute("ALTER TABLE audit_log ADD CONSTRAINT test_reject_audit CHECK (false) NOT VALID");
+        String orderId;
+        try {
+            orderId = createCustomerOrder(product, 1).get("id").asText();
+            assertThat(get(customer, "/api/orders/" + orderId).get("status").asText()).isEqualTo("PENDING_PAYMENT");
+            var cancelled = expect(call(customer, "POST", "/api/orders/" + orderId + "/cancellation", null), 200);
+            assertThat(cancelled.get("status").asText()).isEqualTo("CANCELLED");
+            assertThat(jdbc.queryForObject("select status from customer_order where id=?", String.class, UUID.fromString(orderId)))
+                    .isEqualTo("CANCELLED");
+            assertThat(jdbc.queryForObject("select reserved from inventory where product_id=?", Integer.class, UUID.fromString(product))).isZero();
+            assertThat(jdbc.queryForObject("select count(*) from audit_log", Integer.class)).isZero();
+        } finally {
+            jdbc.execute("ALTER TABLE audit_log DROP CONSTRAINT test_reject_audit");
+        }
+        createCustomerOrder(product, 1);
+        assertThat(jdbc.queryForObject("select count(*) from audit_log", Integer.class)).isEqualTo(1);
+    }
+
     private Map<String,Object> previewInput() { return Map.of("email","order@example.test","phone","123456789","address",deliveryAddress()); }
     private JsonNode preview(String token) throws Exception { return expect(call(token,"POST","/api/orders/preview",previewInput()),200); }
     private JsonNode createCustomerOrder(String product, int quantity) throws Exception {

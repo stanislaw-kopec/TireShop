@@ -46,7 +46,7 @@ class OrderCancellationTests {
         assertThat(retry).isEqualTo(cancelled);
         assertThat(repository.get(order.id(), false).orElseThrow().status()).isEqualTo(OrderStatus.CANCELLED);
         verify(inventory).release(Map.of(product, 2));
-        verify(events).publishEvent(new OrderCancelled(order.id(), "CUSTOMER", NOW));
+        verify(events).publishEvent(new OrderCancelled(order.id(), "CUSTOMER", NOW, customer));
         verifyNoMoreInteractions(inventory, events);
     }
 
@@ -78,7 +78,7 @@ class OrderCancellationTests {
 
         assertThat(service.guestCancel(token, order.id()).status()).isEqualTo(OrderStatus.CANCELLED);
         verify(inventory).release(Map.of(product, 2));
-        verify(events).publishEvent(new OrderCancelled(order.id(), "CUSTOMER", NOW));
+        verify(events).publishEvent(new OrderCancelled(order.id(), "CUSTOMER", NOW, null));
     }
 
     @Test
@@ -97,7 +97,7 @@ class OrderCancellationTests {
 
         assertThat(service.accountCancel(customer, order.id()).cancellationReason()).isEqualTo("EXPIRED");
         verify(inventory).release(Map.of(product, 2));
-        verify(events).publishEvent(new OrderCancelled(order.id(), "EXPIRED", NOW));
+        verify(events).publishEvent(new OrderCancelled(order.id(), "EXPIRED", NOW, null));
     }
 
     @Test
@@ -108,7 +108,7 @@ class OrderCancellationTests {
         service.expire(order.id());
         assertThat(service.accountCancel(customer, order.id()).cancellationReason()).isEqualTo("EXPIRED");
         verify(inventory).release(Map.of(product, 2));
-        verify(events).publishEvent(new OrderCancelled(order.id(), "EXPIRED", NOW));
+        verify(events).publishEvent(new OrderCancelled(order.id(), "EXPIRED", NOW, null));
         verifyNoMoreInteractions(inventory, events);
     }
 

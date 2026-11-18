@@ -76,6 +76,7 @@ public class OrderService {
                 OrderStatus.PENDING_PAYMENT,now,now.plus(Duration.ofMinutes(15)),null,snapshot,null);
         orders.create(order);
         carts.completeCheckout(quote.cartId());
+        events.publishEvent(new OrderCreated(order.id(), account, now));
         return response(order);
     }
     @PreAuthorize("hasRole('CUSTOMER') and #accountId == authentication.principal.accountId()")
@@ -95,7 +96,8 @@ public class OrderService {
     private void release(OrderRepository.Entry order, String reason) {
         inventory.release(order.snapshot().quantities());
         orders.cancel(order.id(),reason);
-        events.publishEvent(new OrderCancelled(order.id(),reason,now()));
+        events.publishEvent(new OrderCancelled(order.id(),reason,now(),
+                "CUSTOMER".equals(reason) ? order.accountId() : null));
     }
 
     public record PaymentOrder(UUID id, OrderStatus status, java.math.BigDecimal amountGross, String currency, Instant expiresAt) {}

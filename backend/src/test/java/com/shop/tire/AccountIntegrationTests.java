@@ -72,7 +72,7 @@ class AccountIntegrationTests {
             assertThat(body(docs).path("paths").has("/api/auth/csrf")).isFalse();
             assertThat(jdbc.queryForObject("select count(*) from information_schema.tables where table_schema='public' and table_name like 'spring_session%'", Integer.class)).isZero();
             assertThat(client.get("/swagger-ui/index.html").statusCode()).isEqualTo(200);
-            assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where success", Integer.class)).isEqualTo(10);
+            assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where success", Integer.class)).isEqualTo(11);
         }
     }
 

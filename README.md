@@ -112,6 +112,8 @@ Wysyłka zaproszeń/resetów jest synchroniczna: brak dostępu do poczty zwraca 
 
 ## Testy i budowanie
 
+Administrator może przeglądać dziennik utworzenia i anulowania zamówień przez `GET /api/admin/audit-log`, również w Swagger UI. Dostępne są filtr typu zdarzenia i paginacja. [Kontrakt i zasady audytu](docs/audit-api.md).
+
 GitHub Actions uruchamia workflow `CI` po pushu do `main` i dla pull requestów. Dwa równoległe zadania sprawdzają backend na Java 25 oraz frontend na Node.js 24. Backend wykonuje Maven `verify`, frontend instaluje zależności przez `npm ci`, uruchamia testy bez trybu obserwowania i buduje Angulara. Po udanych sprawdzeniach każde zadanie buduje odpowiedni obraz Docker. Wyniki są dostępne w zakładce **Actions** repozytorium i przy pull requeście.
 
 Testcontainers uruchamia w CI własne kontenery PostgreSQL 17 oraz Mailpit. To odpowiednik osobnej bazy testowej z materiału 05. Workflow korzysta z istniejącej konfiguracji testów i generowanych przez nie sekretów. Pierwszy wynik oraz badge pojawią się po wypchnięciu pliku `.github/workflows/ci.yml` do GitHub. Automatyczne blokowanie scalania wymaga ustawienia tych zadań jako wymaganych kontroli w regułach gałęzi `main`.

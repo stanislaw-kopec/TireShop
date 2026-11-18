@@ -57,6 +57,8 @@ Materiały źródłowe dostarczył użytkownik; nie kopiujemy ich do repozytoriu
 
 ## Co zmienia ten etap
 
+Etap 3 dostosowania do materiału 05 dodaje dziennik `ORDER_CREATED` / `ORDER_CANCELLED` i endpoint administratora. Spring dostarcza publikację zdarzeń oraz obsługę audytu po commit. Osobna transakcja zapisu i przechwycenie błędu zapewniają niezależność odpowiedzi API od awarii audytu. Jednostkowe testy publikacji i testy HTTP/PostgreSQL weryfikują ponowienia, rollback, dostęp i błąd listenera. Kontrakt oraz ograniczenia trwałości opisano w [API audytu](audit-api.md). Przykład anulowania cudzej rezerwacji przez ADMIN z ćwiczenia dotyczy domeny sal; w TireShop anulowanie nadal przysługuje właścicielowi nieopłaconego zakupu lub wynika z wygaśnięcia rezerwacji.
+
 Kod otrzymuje JWT, sprawdzanie claims i aktualnego stanu konta, Bearer w Swaggerze, konfigurację CORS, nową migrację oraz testy. Instrukcja uruchomienia i kontrakt API są aktualizowane razem z kodem.
 
 Powyższy opis dotyczy etapu przejścia na JWT. W kolejnych etapach wdrożono katalog, koszyk, zamówienia, płatności, śledzenie i realizację pracowniczą, a także ścisłą kontrolę typów JSON oraz wspólny format błędów parametrów. Aktualny zakres i ograniczenia weryfikacji opisuje [raport MVP](mvp-verification.md). Request ID i odseparowanie istniejącego `ApiException` od HTTP pozostają osobnymi zadaniami technicznymi; nie blokują uzgodnionej ścieżki zakupu.
