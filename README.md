@@ -1,7 +1,5 @@
 # TireShop — internetowy sklep z oponami
 
-[![CI](https://github.com/stanislaw-kopec/TireShop/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/stanislaw-kopec/TireShop/actions/workflows/ci.yml)
-
 TireShop to aplikacja sklepu internetowego umożliwiająca zakup opon jako gość lub zalogowany klient. Obejmuje katalog z filtrami, koszyk, składanie zamówień, symulator płatności oraz panele klienta, pracownika i administratora.
 
 Frontend powstał w **Angularze**, a backend w **Javie i Spring Boot**. Dane są przechowywane w **PostgreSQL**. Angular komunikuje się z rzeczywistym REST API — ceny, dostępność, uprawnienia, płatności i statusy zamówień są sprawdzane po stronie backendu.
