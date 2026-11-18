@@ -1,0 +1,33 @@
+<h2>Dziennik zdarzeń</h2>
+<p>Utworzenia i anulowania zamówień, od najnowszych.</p>
+<div class="tools">
+  <label>Typ zdarzenia<select [ngModel]="query().eventType" (ngModelChange)="filter($event)">
+    <option value="">Wszystkie</option>
+    <option value="ORDER_CREATED">Utworzenie zamówienia</option>
+    <option value="ORDER_CANCELLED">Anulowanie zamówienia</option>
+  </select></label>
+  <button (click)="refresh()" [disabled]="result()?.loading">Odśwież dziennik</button>
+</div>
+@if (result(); as state) {
+  @if (state.loading) { <p role="status">Pobieranie zdarzeń…</p> }
+  @else if (state.error) { <p role="alert">{{ state.error }}</p><button (click)="refresh()">Ponów pobieranie dziennika</button> }
+  @else if (state.page; as page) {
+    <p>Liczba zdarzeń: {{ page.totalElements }}</p>
+    <ul>@for (entry of page.items; track entry.id) {
+      <li><strong>{{ labels[entry.eventType] }}</strong>
+        <p>{{ entry.occurredAt | date:'dd.MM.yyyy, HH:mm:ss' }}</p>
+        <p>Zamówienie: TS-{{ entry.payload.orderId }}</p>
+        <p>Wykonawca: @if (entry.payload.actorAccountId) { konto {{ entry.payload.actorAccountId }} }
+          @else { {{ entry.payload.reason === 'EXPIRED' ? 'System' : 'Gość' }} }</p>
+        @if (entry.payload.reason) { <p>Powód: {{ entry.payload.reason === 'EXPIRED' ? 'Wygaśnięcie rezerwacji' : 'Anulowanie przez kupującego' }}</p> }
+      </li>
+    } @empty { <li>Brak zdarzeń dla wybranego filtra.</li> }</ul>
+    @if (page.totalPages > 1 || page.page > 0) {
+      <nav aria-label="Strony dziennika zdarzeń">
+        <button [disabled]="page.page === 0" (click)="go(page.page - 1)">Poprzednia</button>
+        <span>Strona {{ page.page + 1 }} z {{ page.totalPages }}</span>
+        <button [disabled]="page.page + 1 >= page.totalPages" (click)="go(page.page + 1)">Następna</button>
+      </nav>
+    }
+  }
+}

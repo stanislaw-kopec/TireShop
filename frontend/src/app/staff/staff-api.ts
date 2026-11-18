@@ -3,7 +3,7 @@ import { Injectable, inject, signal } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { AccountService, bearer } from '../account/account';
 
-export interface Page<T> { items: T[]; page: number; totalPages: number }
+export type { Page } from '../shared/page';
 type Method = 'GET' | 'POST' | 'PUT' | 'PATCH';
 type OperationBody = Record<string, string | number>;
 type Resource = `inventory/${string}` | `order/${string}`;

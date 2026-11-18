@@ -19,7 +19,7 @@ class DemoSeedRunner implements ApplicationRunner {
     @Override public void run(ApplicationArguments args) {
         boolean created = seed.apply();
         LoggerFactory.getLogger(DemoSeedRunner.class).info(created
-                ? "Demo data created. Credentials and presentation steps: docs/demo.md"
+                ? "Demo data created or upgraded. Credentials and presentation steps: docs/demo.md"
                 : "Demo seed already applied; existing data left unchanged.");
     }
 }

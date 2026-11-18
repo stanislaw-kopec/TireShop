@@ -32,11 +32,17 @@ W sekcji **Moje konto → Historia zamówień** klient widzi datę, kwotę, stat
 
 Jeśli link gościa wygasł lub zaginął, wybierz „Śledzenie zamówienia gościa” w stopce. Wpisz numer zamówienia i e-mail z zakupu. Nowy link jest dostarczany na zapisany adres. W demo można otworzyć wiadomość w [lokalnej skrzynce Mailpit](http://localhost:8026).
 
+W szczegółach zamówienia wybierz **Pokaż historię płatności**. Lista pokazuje próby od najnowszych: status, kwotę, czas rozpoczęcia i zakończenia oraz powód zakończenia. Dostępne są kolejne strony i odświeżanie. Dla klienta odczyt używa JWT, a dla gościa osobnego tokenu zakupu z tej karty. Sam publiczny link do śledzenia nie daje dostępu do płatności.
+
 ## Panele personelu
 
 Po zalogowaniu na konto `employee@demo.test` otwiera się panel pracownika. Wybierz „Opony”, aby utworzyć produkt, poprawić parametry, przyjąć dostawę lub skorygować stan. W „Zamówieniach” możesz filtrować po statusie, sprawdzić adres, rozpocząć realizację, wpisać numer przesyłki i potwierdzić doręczenie. Numer przesyłki można poprawić do czasu doręczenia.
 
 Konto `admin@demo.test` prowadzi do panelu administratora. Cenę i dopuszczenie do sprzedaży zapisuje się osobno. W zakładce „Konta” administrator może zaprosić pracownika lub wyszukać klienta albo pracownika po e-mailu i wysłać jednorazowy link. Właściciel konta otwiera wiadomość w [Mailpit](http://localhost:8026) i ustawia własne hasło. [Dane do logowania w demo](../docs/demo.md#konta).
+
+Pracownik otwiera historię przez **Opony → wybrany produkt → Pokaż historię magazynu**. Wpisy pokazują przyjęcia, korekty i wydania po płatności, zmianę ilości, stan po operacji, powód, autora oraz powiązane zamówienie, jeśli istnieje. Po zapisaniu zmiany magazynowej otwarta historia wraca do pierwszej strony i pobiera nowe wpisy.
+
+Administrator ma zakładkę **Dziennik zdarzeń** z utworzeniami i anulowaniami zamówień. Może filtrować typ zdarzenia, przechodzić między stronami i odświeżać dane. Widok pokazuje czas, numer zamówienia, wykonawcę i powód anulowania. Wygaśnięcie rezerwacji jest oznaczone jako działanie systemu. Pracownik nie ma dostępu do tej zakładki, a administrator nie otrzymuje uprawnień magazynowych.
 
 
 ## Jak działa komponent karty

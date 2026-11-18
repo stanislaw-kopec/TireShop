@@ -17,7 +17,7 @@ $env:DEMO_PASSWORD = [System.Net.NetworkCredential]::new("", $demoCredential).Pa
 .\mvnw.cmd spring-boot:run
 ```
 
-Hasło nie jest wyświetlane ani zapisane w kodzie. `DEMO_PASSWORD` jest potrzebne tylko podczas pierwszego wczytania. Po zakończeniu procesu możesz usunąć je z terminala: `Remove-Item Env:DEMO_PASSWORD`. Aby wrócić do zwykłego uruchamiania, ustaw `SPRING_PROFILES_ACTIVE=local`; dane pozostają w bazie.
+Hasło nie jest wyświetlane ani zapisane w kodzie. `DEMO_PASSWORD` jest potrzebne podczas pierwszego wczytania oraz aktualizacji seeda dodającej nowe konta. Po zakończeniu procesu możesz usunąć je z terminala: `Remove-Item Env:DEMO_PASSWORD`. Aby wrócić do zwykłego uruchamiania, ustaw `SPRING_PROFILES_ACTIVE=local`; dane pozostają w bazie.
 
 W IntelliJ, w konfiguracji klasy `Application`, ustaw `SPRING_PROFILES_ACTIVE=demo`, `DEMO_PASSWORD` oraz oba sekrety. Nie zapisuj haseł w współdzielonej konfiguracji projektu. Po pierwszym udanym starcie możesz usunąć `DEMO_PASSWORD`; seed zostanie pominięty.
 
@@ -30,6 +30,7 @@ Profil korzysta z tej samej lokalnej bazy co zwykły profil `local`; nie czyści
 | ADMIN | `admin@demo.test` | `DEMO_PASSWORD` |
 | EMPLOYEE | `employee@demo.test` | `DEMO_PASSWORD` |
 | CUSTOMER | `customer@demo.test` | `DEMO_PASSWORD` |
+| CUSTOMER — historia | `history@demo.test` | `DEMO_PASSWORD` przy aktualizacji do v2 |
 
 Jeśli w bazie już jest administrator, seed wykorzystuje go do przygotowania cen i **nie tworzy kolejnego admina ani nie zmienia jego hasła**. Loguj się wtedy dotychczasowymi danymi administratora. Dotyczy to również administratora utworzonego wcześniej w tym samym starcie przez `ADMIN_BOOTSTRAP_ENABLED`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` — zwykły bootstrap działa przed seedem.
 
@@ -37,14 +38,35 @@ Pracownik i klient demo są tworzeni jako aktywni, bez procesu zaproszenia. Jest
 
 ## Zawartość
 
-- 15 produktów, 4 producentów, 3 rozmiary i wszystkie sezony. Nazwy `Demo 1`–`Demo 15` oraz ceny są fikcyjnymi przykładami, nie rzeczywistą ofertą producentów. Zdjęcia pozostają puste (pole opcjonalne), bez zależności od zewnętrznego hostingu.
-- 12 produktów dostępnych publicznie. `Demo 13` nie ma ceny, `Demo 14` ma cenę, ale jest poza sprzedażą, `Demo 15` ma cenę i zgodę na sprzedaż, lecz zerowy stan.
-- Początkowe przyjęcie po 40 sztuk dla 14 produktów, z rejestrem magazynowym. Sprzedaż przykładowych zamówień zmniejsza ten stan przez zwykły symulator płatności.
+- 24 produkty, 4 producentów, 3 rozmiary i wszystkie sezony. Nazwy `Demo 1`–`Demo 24` oraz ceny są fikcyjnymi przykładami, nie rzeczywistą ofertą producentów. Zdjęcia pozostają puste (pole opcjonalne), bez zależności od zewnętrznego hostingu; można ustawić własny adres HTTPS w edycji produktu.
+- 21 produktów dostępnych publicznie — katalog ma więcej niż jedną stronę. `Demo 13` nie ma ceny, `Demo 14` ma cenę, ale jest poza sprzedażą, `Demo 15` ma cenę i zgodę na sprzedaż, lecz zerowy stan.
+- Początkowe przyjęcie po 40 sztuk dla 23 produktów, z rejestrem magazynowym. Sprzedaż przykładowych zamówień zmniejsza ten stan przez zwykły symulator płatności. `Demo 16` ma także 20 korekt (naprzemiennie +1 i −1, łącznie bez zmiany stanu) i dwa wydania po zapłacie: 23 wpisy do pokazania paginacji.
 - Adres klienta i koszyk z dwiema pozycjami (łącznie 3 sztuki). Dodanie czwartej pozwala pokazać zmianę dostawy z 20 PLN na darmową.
 - 6 zamówień klienta: `PENDING_PAYMENT`, `PAID`, `PROCESSING`, `SHIPPED`, `DELIVERED`, `CANCELLED`. Wysłane i doręczone mają demonstracyjne numery przesyłek z prefiksem `DEMO-`.
-- 1 opłacone zamówienie gościa `guest@demo.test`, z linkiem śledzenia wysyłanym do Mailpit przez normalną kolejkę po zatwierdzeniu seeda.
+- Konto `history@demo.test` bez adresu w profilu, z 21 zamówieniami. Zamówienie `PAID` zawiera 4 sztuki dwóch produktów (darmowa dostawa) i 21 prób płatności: 10 odrzuceń, 10 anulowań i sukces. Zamówienie `SHIPPED` zawiera 3 sztuki (20 PLN dostawy) oraz poprawiony numer przesyłki `DEMO-NEW-…`. Pozostałe to 18 anulowanych i jedno oczekujące z rozpoczętą płatnością. Dane dostawy podane podczas zakupów nie zmieniają profilu tego konta.
+- 3 zamówienia gości: opłacone `guest@demo.test` i `history-guest@demo.test` (drugie po odrzuceniu i anulowaniu prób) oraz anulowane `cancelled-guest@demo.test`, którego rozpoczęta płatność również została anulowana. Dwa linki śledzenia trafiają do Mailpit przez normalną kolejkę po zatwierdzeniu seeda.
+- 30 zamówień łącznie i 50 wpisów audytu na świeżej bazie: 30 utworzeń i 20 anulowań. Audyt powstaje przez zwykłe zdarzenia po commit. Późniejsze operacje i wygaśnięcie rezerwacji dodają następne wpisy.
 
-Rezerwacja `PENDING_PAYMENT` wygasa po normalnych 15 minutach. Restart jej nie przedłuża ani nie tworzy nowego zamówienia. Wszystkie płatności są symulowane; kwoty i daty powstają przez zwykłe reguły aplikacji. Nie zmieniamy zegara ani historycznych statusów bez przejść domenowych.
+Obie rezerwacje `PENDING_PAYMENT` wygasają po normalnych 15 minutach. Restart ich nie przedłuża ani nie tworzy nowych zamówień. Po wygaśnięciu pokaż kolejną płatność, składając nowe zamówienie. Wszystkie płatności są symulowane; kwoty i daty powstają przez zwykłe reguły aplikacji. Nie zmieniamy zegara ani historycznych statusów bez przejść domenowych.
+
+## Pokaz nowych widoków i pozostałych funkcji
+
+| Funkcja | Dane i sposób prezentacji |
+| --- | --- |
+| Historia prób płatności | Zaloguj `history@demo.test`, w historii zamówień wybierz opłacone (`PAID`), otwórz szczegóły i historię płatności. Pokaż wyniki oraz drugą stronę. |
+| Historia magazynu | Pracownik → opony → edytuj `Demo 16` → historia zmian magazynowych. Widać przyjęcie, korekty dodatnie/ujemne i wydania; są dwie strony. |
+| Audyt | Administrator → Dziennik zdarzeń. Przełącz strony oraz filtry utworzenia/anulowania zamówienia. |
+| Paginacja zamówień | `history@demo.test` ma 21 zamówień; lista pracownika ma 30. |
+| Brak zapisanego adresu | `history@demo.test` → dodaj oponę do koszyka → przejdź do zakupu. Wprowadź adres w checkout; profil nadal pozostanie bez adresu. Osobno pokaż jego zapis i edycję w panelu konta. |
+| Koszyk i scalanie | `customer@demo.test` ma 3 sztuki. Dodaj sztukę jako gość i zaloguj się — po scaleniu pokaż 4 sztuki i darmową dostawę. |
+| Cena i dopuszczenie do sprzedaży | Administrator ustawia cenę `Demo 13`, potem osobno włącza sprzedaż; `Demo 14` można dopuścić lub wycofać. |
+| Stan i parametry | Pracownik dodaje dostawę `Demo 15`, edytuje parametry/zdjęcie i tworzy nowy model; cenę i sprzedaż ustala administrator. |
+| Statusy i przesyłka | Podstawowy klient ma wszystkie etapy; pracownik może obsłużyć PAID → PROCESSING → SHIPPED → DELIVERED. W SHIPPED pokaż korektę numeru. |
+| Śledzenie gościa | Otwórz jedną z dwóch wiadomości w Mailpit; pokaż status i formularz ponownego wydania linku. |
+| Rejestracja i konta pracowników | Zarejestruj nowego klienta. Administrator tworzy pracownika z nowym adresem; otwórz wiadomość w Mailpit i ustaw hasło. |
+| Reset hasła i wylogowanie | Administrator inicjuje reset wybranemu klientowi/pracownikowi. W Mailpit otwórz link i ustaw hasło; pokaż ponowne logowanie oraz wylogowanie. |
+
+Seed przygotowuje dane, a operacje takie jak rejestracja, zaproszenie pracownika, reset hasła, scalanie koszyków i edycja zdjęcia wykonuje się podczas pokazu. Nie resetuje haseł ani nie tworzy gotowych tokenów zaproszeń przy starcie. Historia płatności gościa wymaga kontekstu jego zakupu: pokaż ją po nowym zakupie w tej samej karcie. Link z wiadomości daje wyłącznie dostęp do śledzenia, nie do płatności.
 
 ## Pokaz sklepu w przeglądarce
 
@@ -65,10 +87,12 @@ Rezerwacja `PENDING_PAYMENT` wygasa po normalnych 15 minutach. Restart jej nie p
 
 ## Bezpieczne ponowienie i błędy
 
-V10 dodaje jedynie strukturę `demo_seed_history`; dane nie są migracją Flyway. Seed oraz znacznik `presentation-v1` powstają w jednej transakcji. Blokada PostgreSQL zapobiega dwóm równoczesnym wykonaniom. Błąd wycofuje wszystkie zmiany seeda; po usunięciu przyczyny można uruchomić aplikację ponownie.
+V10 dodaje jedynie strukturę `demo_seed_history`; dane nie są migracją Flyway. Seed używa znaczników `presentation-v1` i `presentation-v2`. Na nowej bazie obie wersje powstają w jednej transakcji. Starsza baza v1 otrzymuje tylko rozszerzenie: dziewięć nowych produktów, osobne konto historii i nowe zamówienia. Nie modyfikuje wcześniejszych produktów, koszyków, adresów ani zamówień. Blokada PostgreSQL zapobiega dwóm równoczesnym wykonaniom. Błąd wycofuje zmiany bieżącego uruchomienia; wcześniejsze dane v1 pozostają.
+
+W Dockerze aktualizacja wymaga tylko `docker compose up --build`, bez usuwania wolumenu ani plików `.demo`. Przy starcie z IDE/Mavena ponownie ustaw `DEMO_PASSWORD` dla nowego konta historii. Aktualizacja wymaga aktywnego administratora i oryginalnych aktywnych kont pracownika oraz klienta we właściwych rolach. Zajęty adres `history@demo.test` powoduje przerwanie aktualizacji; seed nie przejmuje konta ani nie zmienia jego hasła.
 
 Po sukcesie kolejne starty pomijają seed, także gdy zmienisz `DEMO_PASSWORD`. Zmiany cen, haseł, magazynu i statusów wykonane w czasie pokazu pozostają zachowane. Nie ma automatycznego czyszczenia ani resetu prezentacji. Nową prezentację od zera można przygotować w nowej, pustej bazie; nie usuwaj znacznika wykonania w używanej bazie.
 
 ## Testy
 
-Standardowe `./mvnw.cmd verify` obejmuje także testy seeda na PostgreSQL. Sprawdzają dane i role przez HTTP, brak seeda poza profilem demo, zachowanie zmienionej ceny/hasła po restarcie, ponowienia równoległe, rollback kolizji konta oraz współpracę z istniejącym bootstrapem administratora. Test konfiguracji sprawdza wymaganie hasła i brak jego wartości w komunikatach błędów.
+Standardowe `./mvnw.cmd verify` obejmuje także testy seeda na PostgreSQL. Sprawdzają dane i role przez HTTP, paginację i historie, brak seeda poza profilem demo, aktualizację bazy v1 bez zmiany istniejących kont/ceny/koszyka, zachowanie zmienionej ceny/hasła po restarcie, ponowienia równoległe, rollback kolizji konta oraz współpracę z istniejącym bootstrapem administratora. Test konfiguracji sprawdza wymaganie hasła i brak jego wartości w komunikatach błędów.

@@ -1,0 +1,25 @@
+<h3>Historia magazynu</h3>
+<button (click)="refresh()" [disabled]="result()?.loading">Odśwież historię magazynu</button>
+@if (result(); as state) {
+  @if (state.loading) { <p role="status">Pobieranie historii magazynu…</p> }
+  @else if (state.error) { <p role="alert">{{ state.error }}</p><button (click)="refresh()">Ponów pobieranie historii magazynu</button> }
+  @else if (state.page; as page) {
+    <p>Liczba ruchów: {{ page.totalElements }}</p>
+    <ul>@for (movement of page.items; track movement.operationId) {
+      <li><strong>{{ labels[movement.type] }}: {{ movement.quantityDelta > 0 ? '+' : '' }}{{ movement.quantityDelta }} szt.</strong>
+        <p>{{ movement.createdAt | date:'dd.MM.yyyy, HH:mm:ss' }}</p>
+        <p>{{ movement.reason }}</p>
+        <p>Stan po zmianie: {{ movement.onHandAfter }} · Zarezerwowane: {{ movement.reservedAfter }}</p>
+        <p>Autor: {{ movement.actorAccountId ? 'konto ' + movement.actorAccountId : 'System' }}</p>
+        @if (movement.orderId) { <p>Zamówienie: TS-{{ movement.orderId }}</p> }
+      </li>
+    } @empty { <li>Brak ruchów magazynowych na tej stronie.</li> }</ul>
+    @if (page.totalPages > 1 || page.page > 0) {
+      <nav aria-label="Strony historii magazynu">
+        <button [disabled]="page.page === 0" (click)="go(page.page - 1)">Poprzednia</button>
+        <span>Strona {{ page.page + 1 }} z {{ page.totalPages }}</span>
+        <button [disabled]="page.page + 1 >= page.totalPages" (click)="go(page.page + 1)">Następna</button>
+      </nav>
+    }
+  }
+}

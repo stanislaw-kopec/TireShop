@@ -6,7 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 public record DemoProperties(String password) {
     public void requirePassword() {
         if (password == null || password.isBlank() || password.length() < 12 || password.length() > 128) {
-            throw new IllegalStateException("First demo seed requires DEMO_PASSWORD (12-128 characters).");
+            throw new IllegalStateException("Demo seed or upgrade requires DEMO_PASSWORD (12-128 characters).");
         }
     }
     @Override public String toString() { return "DemoProperties[redacted]"; }

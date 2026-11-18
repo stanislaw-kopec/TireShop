@@ -11,6 +11,7 @@ Projekt został przygotowany na zajęcia z budowania aplikacji internetowych. Wy
 ## Spis treści
 
 - [Uruchomienie w jednej komendzie](#uruchomienie-w-jednej-komendzie)
+- [Dane demo i krótki scenariusz prezentacji](#dane-demo-i-krótki-scenariusz-prezentacji)
 - [Funkcjonalności i role](#funkcjonalności-i-role)
 - [Przebieg zakupu i reguły sklepu](#przebieg-zakupu-i-reguły-sklepu)
 - [Zastosowane technologie](#zastosowane-technologie)
@@ -54,12 +55,13 @@ Compose buduje frontend i backend, uruchamia PostgreSQL oraz Mailpit, wykonuje m
 | Rola | E-mail | Przykładowe zastosowanie |
 |---|---|---|
 | Klient | `customer@demo.test` | Zakup, edycja adresu, historia zamówień. |
+| Klient z rozbudowaną historią | `history@demo.test` | Paginacja zamówień i płatności; zakup bez zapisanego adresu. |
 | Pracownik | `employee@demo.test` | Produkty, magazyn i realizacja zamówień. |
 | Administrator | `admin@demo.test` | Ceny, dopuszczenie do sprzedaży i zarządzanie kontami. |
 
 Wspólne początkowe hasło jest generowane przy pierwszym starcie i zapisywane w **`.demo/password.txt`**. Nie ma stałego hasła w kodzie. Można też zarejestrować własnego klienta lub kupić jako gość.
 
-Na nowej bazie demo zawiera **15 produktów**, w tym 12 dostępnych w publicznym katalogu, czterech producentów, koszyk klienta, sześć zamówień klienta i jedno opłacone zamówienie gościa. Pozostałe produkty pokazują brak ceny, wyłączenie sprzedaży i zerowy stan. Dane są dodawane raz; restart nie nadpisuje późniejszych zmian. Szczegóły i scenariusz prezentacji: [profil demo](docs/demo.md).
+Jeśli baza ma już administratora, demo wykorzystuje jego konto bez zmiany hasła; użyj dotychczasowych danych logowania. Hasła zmienione podczas prezentacji pozostają zachowane.
 
 ### Zatrzymanie i ponowne uruchomienie
 
@@ -70,6 +72,40 @@ Na nowej bazie demo zawiera **15 produktów**, w tym 12 dostępnych w publicznym
 
 PostgreSQL przechowuje dane w wolumenie projektu Compose `tireshop-demo`. Katalog `.demo/` zawiera hasło początkowe i trwałe sekrety — zachowaj go razem z bazą. Zwykłe zatrzymanie kontenerów nie usuwa danych. Nie używaj `docker compose down -v`, jeśli chcesz je zachować.
 
+### Aktualizacja istniejącego demo
+
+Po pobraniu zmian uruchom z głównego katalogu:
+
+```sh
+docker compose up --build
+```
+
+Seed rozpoznaje wykonane wersje i dodaje brakujące przykłady jednorazowo. Rozszerzenie `presentation-v2` dodaje dziewięć produktów, konto `history@demo.test` oraz nowe zamówienia, zachowując wcześniejsze konta, ceny, koszyki i zamówienia. Nie trzeba usuwać bazy ani plików `.demo`. Przy uruchamianiu z IDE/Mavena nowe konta wymagają ponownego ustawienia `DEMO_PASSWORD`; Compose przekazuje je z istniejącego pliku automatycznie. Zajęty adres nowego konta powoduje przerwanie aktualizacji, zamiast przejęcia konta.
+
+## Dane demo i krótki scenariusz prezentacji
+
+Poniższe liczby dotyczą świeżej bazy, przed własnymi zakupami i zmianami podczas prezentacji.
+
+| Dane | Co można pokazać |
+|---|---|
+| 24 produkty, w tym 21 w publicznym katalogu | Filtry czterech producentów, trzech rozmiarów i wszystkich sezonów, sortowanie oraz paginację. |
+| `Demo 13`, `Demo 14`, `Demo 15` | Odpowiednio brak ceny, wyłączenie ze sprzedaży i zerowy stan magazynowy. |
+| `customer@demo.test` | Zapisany adres, koszyk z 3 sztukami oraz 6 zamówień reprezentujących wszystkie statusy. |
+| `history@demo.test` | Brak adresu w profilu, 21 zamówień oraz opłacone zamówienie z 21 próbami płatności: odrzucenia, anulowania i sukces. |
+| Historia magazynu `Demo 16` | 23 wpisy: przyjęcie, korekty dodatnie i ujemne oraz wydania po zapłacie. |
+| 3 zamówienia gości | Dwa opłacone z linkami śledzenia w Mailpit oraz jedno anulowane. |
+| 30 zamówień i 50 wpisów audytu | Paginację zamówień oraz dziennik utworzeń i anulowań z filtrowaniem. |
+
+Proponowana kolejność pokazu:
+
+1. **Gość:** wybierz oponę, przejdź przez koszyk i adres do symulatora. Odrzuć próbę, ponów płatność i potwierdź sukces. Otwórz link śledzenia oraz wiadomość w Mailpit.
+2. **Klient:** dodaj sztukę do koszyka gościa i zaloguj się jako `customer@demo.test`. Na świeżym demo scalenie z trzema zapisanymi sztukami daje cztery sztuki i darmową dostawę. Pokaż też edycję adresu i historię zakupów.
+3. **Historia płatności:** zaloguj `history@demo.test`, otwórz zamówienie opłacone (`PAID`) i wybierz **Pokaż historię płatności**. Przejdź na drugą stronę wyników.
+4. **Pracownik:** w panelu otwórz `Demo 16` i historię magazynu. Następnie pokaż dostawę towaru oraz realizację zamówienia z numerem przesyłki.
+5. **Administrator:** ustaw cenę i dopuszczenie do sprzedaży, otwórz **Dziennik zdarzeń**, pokaż filtry i kolejne strony. Zaproś nowego pracownika lub zainicjuj reset hasła, a wiadomość otwórz w Mailpit.
+
+Nieopłacone przykładowe zamówienia wygasają po **15 minutach**; restart nie odnawia rezerwacji. Rejestrację, zaproszenie pracownika, reset hasła i scalanie koszyków wykonuje się podczas pokazu. Link śledzenia gościa nie daje dostępu do historii płatności — tę pokaż w kontekście nowego zakupu w tej samej karcie. Pełny scenariusz i zasady aktualizacji: [profil demo](docs/demo.md).
+
 ## Funkcjonalności i role
 
 | Użytkownik | Dostępne funkcje |
@@ -77,9 +113,9 @@ PostgreSQL przechowuje dane w wolumenie projektu Compose `tireshop-demo`. Katalo
 | Gość | Katalog i szczegóły opon, filtry rozmiaru/sezonu/producenta, sortowanie cen, paginacja, koszyk, zakup bez konta, symulator płatności i śledzenie opłaconego zamówienia przez specjalny link. |
 | Klient (`CUSTOMER`) | Rejestracja i logowanie, własny koszyk, scalenie koszyka gościa po zalogowaniu, edycja danych i adresu, zakup, historia i szczegóły własnych zamówień, status i numer przesyłki. |
 | Pracownik (`EMPLOYEE`) | Dodawanie i edycja parametrów oraz zdjęcia produktu, przyjęcia i korekty magazynowe, historia magazynu, przegląd zamówień i danych dostawy, obsługa realizacji i numeru przesyłki. |
-| Administrator (`ADMIN`) | Ustalanie cen, dopuszczanie i wycofywanie produktów ze sprzedaży, zapraszanie pracowników, inicjowanie resetu hasła klienta/pracownika oraz odczyt dziennika zdarzeń przez API. |
+| Administrator (`ADMIN`) | Ustalanie cen, dopuszczanie i wycofywanie produktów ze sprzedaży, zapraszanie pracowników, inicjowanie resetu hasła klienta/pracownika oraz dziennik zdarzeń z filtrem i paginacją. |
 
-Pracownik nie ustala cen. Administrator nie dziedziczy automatycznie uprawnień pracownika. Publiczna rejestracja tworzy wyłącznie konto klienta. Dziennik zdarzeń administratora jest dostępny w Swaggerze przez `GET /api/admin/audit-log`; nie ma osobnego ekranu audytu w Angularze.
+Pracownik nie ustala cen. Administrator nie dziedziczy automatycznie uprawnień pracownika. Publiczna rejestracja tworzy wyłącznie konto klienta. Administrator otwiera **Panel personelu → Dziennik zdarzeń**, pracownik **Opony → wybrana opona → Pokaż historię magazynu**, a klient lub gość **szczegóły zamówienia → Pokaż historię płatności**. Wszystkie trzy widoki korzystają z API, mają paginację i odświeżanie. Publiczny link śledzenia gościa nie udostępnia historii płatności.
 
 ## Przebieg zakupu i reguły sklepu
 
@@ -206,6 +242,8 @@ Z katalogu `backend`, w PowerShell:
 Na Linux/macOS użyj `sh ./mvnw` zamiast `.\mvnw.cmd`. Profile Maven `unit` i `integration` uruchamiaj osobno. Domyślne `verify` wykonuje oba zestawy.
 
 Testy obejmują reguły koszyka i dostawy, JWT i uprawnienia, migracje, rezerwacje, płatności, realizację, audyt i seed. Sprawdzają także ponowienia, rollback, granice czasu i równoległą rywalizację o towar. Testcontainers tworzy izolowane kontenery PostgreSQL i Mailpit; testy nie korzystają z bazy demo. Własne sekrety do testów nie są wymagane. Pełna ścieżka HTTP obejmuje zakup klienta/gościa, pocztę SMTP i restart aplikacji.
+
+Testy demo sprawdzają także aktualizację wcześniejszej wersji bez nadpisania kont, ceny i koszyka, kolizje adresów kont, brak duplikatów po restarcie oraz dostęp i paginację historii przez HTTP. Testy frontendu obejmują widoki historii płatności, magazynu i audytu.
 
 Z katalogu `frontend`:
 

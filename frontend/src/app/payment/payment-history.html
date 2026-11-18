@@ -1,0 +1,25 @@
+<h2>Historia płatności</h2>
+<p>Próby płatności od najnowszych. Wszystkie płatności są symulowane.</p>
+<button (click)="refresh()" [disabled]="result()?.loading">Odśwież historię płatności</button>
+@if (result(); as state) {
+  @if (state.loading) { <p role="status">Pobieranie historii płatności…</p> }
+  @else if (state.error) { <p role="alert">{{ state.error }}</p><button (click)="refresh()">Ponów pobieranie historii płatności</button> }
+  @else if (state.page; as page) {
+    <p>Liczba prób: {{ page.totalElements }}</p>
+    <ul>@for (payment of page.items; track payment.id) {
+      <li><strong>{{ statuses[payment.status] }} · {{ money.format(payment.amountGross) }}</strong>
+        <p>Rozpoczęcie: {{ payment.createdAt | date:'dd.MM.yyyy, HH:mm:ss' }}</p>
+        @if (payment.finishedAt) { <p>Zakończenie: {{ payment.finishedAt | date:'dd.MM.yyyy, HH:mm:ss' }}</p> }
+        @if (payment.reason) { <p>Powód: {{ reasons[payment.reason] ?? 'Zakończenie próby w symulatorze' }}</p> }
+        <small>Identyfikator próby: {{ payment.id }}</small>
+      </li>
+    } @empty { <li>Brak prób płatności na tej stronie.</li> }</ul>
+    @if (page.totalPages > 1 || page.page > 0) {
+      <nav aria-label="Strony historii płatności">
+        <button [disabled]="page.page === 0" (click)="go(page.page - 1)">Poprzednia</button>
+        <span>Strona {{ page.page + 1 }} z {{ page.totalPages }}</span>
+        <button [disabled]="page.page + 1 >= page.totalPages" (click)="go(page.page + 1)">Następna</button>
+      </nav>
+    }
+  }
+}

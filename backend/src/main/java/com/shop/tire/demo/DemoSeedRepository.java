@@ -12,11 +12,11 @@ class DemoSeedRepository {
     private final JdbcTemplate jdbc;
     DemoSeedRepository(JdbcTemplate jdbc) { this.jdbc = jdbc; }
     void lock() { jdbc.execute("SELECT pg_advisory_xact_lock(71309422)"); }
-    boolean applied() {
+    boolean applied(String version) {
         return Boolean.TRUE.equals(jdbc.queryForObject(
-                "select exists(select 1 from demo_seed_history where name='presentation-v1')", Boolean.class));
+                "select exists(select 1 from demo_seed_history where name=?)", Boolean.class, version));
     }
-    void record(Instant now) {
-        jdbc.update("insert into demo_seed_history(name,applied_at) values ('presentation-v1',?)", Timestamp.from(now));
+    void record(String version, Instant now) {
+        jdbc.update("insert into demo_seed_history(name,applied_at) values (?,?)", version, Timestamp.from(now));
     }
 }

@@ -2,6 +2,8 @@
 
 `GET /api/admin/audit-log` wymaga JWT Bearer konta `ADMIN`. Endpoint udostępnia wpisy o utworzeniu i anulowaniu zamówienia. Parametry opisuje również Swagger UI.
 
+Frontend udostępnia ten odczyt w **Panelu administratora → Dziennik zdarzeń**, z filtrem typu, paginacją, odświeżaniem i obsługą błędów. Wpisy pokazują numer zamówienia, czas, identyfikator konta wykonawcy (albo gościa/system) i powód anulowania.
+
 | Parametr | Znaczenie |
 |---|---|
 | `eventType` | Opcjonalnie `ORDER_CREATED` albo `ORDER_CANCELLED`. Pominięcie zwraca oba typy. |

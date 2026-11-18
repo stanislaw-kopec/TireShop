@@ -7,9 +7,10 @@ import { AccountService } from '../account/account';
 import { priceFormat } from '../catalog/catalog-api';
 import { CheckoutApi, Order, orderStatuses, checkoutError } from './checkout-api';
 import { TrackingLink } from '../payment/tracking-link';
+import { PaymentHistory } from '../payment/payment-history';
 
 @Component({
-  imports: [RouterLink, DatePipe, TrackingLink],
+  imports: [RouterLink, DatePipe, TrackingLink, PaymentHistory],
   template: `
     @if (route.snapshot.data['guest']) { <a class="back" routerLink="/">← Wróć do katalogu</a> }
     @else { <a class="back" routerLink="/konto/zamowienia">← Historia zamówień</a> }
@@ -52,6 +53,10 @@ import { TrackingLink } from '../payment/tracking-link';
         <section><h2>Adres dostawy</h2><p>{{ a.recipientName }}<br>{{ a.street }} {{ a.buildingNumber }}@if (a.apartmentNumber) {/{{ a.apartmentNumber }}}<br>
           {{ a.postalCode }} {{ a.city }}, {{ a.countryCode }}</p></section>
       }
+      <button (click)="showHistory.set(!showHistory())" [attr.aria-expanded]="showHistory()">
+        {{ showHistory() ? 'Ukryj historię płatności' : 'Pokaż historię płatności' }}
+      </button>
+      @if (showHistory()) { <app-payment-history [orderId]="order.id" [owner]="owner()" /> }
     } @else { <p role="status">Pobieranie zamówienia…</p> }
   `,
   styleUrls: ['../account/forms.css', './checkout.css'],
@@ -65,7 +70,9 @@ export class OrderPage {
   protected readonly statuses = orderStatuses;
   protected readonly refresh = new Subject<void>();
   protected readonly cancelling = signal(false);
+  protected readonly showHistory = signal(false);
   protected readonly notice = signal<{ id: string; text: string } | null>(null);
+  protected owner() { return this.route.snapshot.data['guest'] ? 'guest' : this.auth.profile()?.id ?? ''; }
 
   protected async cancel(order: Order) {
     const owner = this.route.snapshot.data['guest'] ? 'guest' : this.auth.profile()?.id;

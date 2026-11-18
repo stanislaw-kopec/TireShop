@@ -2,6 +2,7 @@ import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { CheckoutApi, checkoutError } from '../checkout/checkout-api';
+import { Page } from '../shared/page';
 
 export type Outcome = 'SUCCEEDED' | 'FAILED' | 'CANCELLED';
 export interface Payment {
@@ -10,6 +11,10 @@ export interface Payment {
   amountGross: number;
   currency: 'PLN';
   status: 'PENDING' | Outcome;
+  createdAt: string;
+  finishedAt: string | null;
+  reason: string | null;
+  simulation: boolean;
 }
 
 export function paymentError(error: unknown) {
@@ -31,11 +36,13 @@ export class PaymentApi {
 
   private key(owner: string, id: string) { return 'tireshop.payment.' + owner + '.' + id; }
 
-  async latest(owner: string, id: string) {
+  history(owner: string, id: string, page = 0, size = 20) {
     const { url, headers } = this.checkout.orderResource(owner, id);
-    const page = await firstValueFrom(this.http.get<{ items: Payment[] }>(url + '/payments', {
-      headers, params: { page: 0, size: 1 },
-    }));
+    return this.http.get<Page<Payment>>(url + '/payments', { headers, params: { page, size } });
+  }
+
+  async latest(owner: string, id: string) {
+    const page = await firstValueFrom(this.history(owner, id, 0, 1));
     return page.items[0] ?? null;
   }
 

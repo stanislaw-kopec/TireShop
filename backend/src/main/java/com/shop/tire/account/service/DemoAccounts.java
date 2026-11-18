@@ -38,6 +38,32 @@ public class DemoAccounts {
                 create("customer@demo.test", "Klient", Role.CUSTOMER, password));
     }
 
+    /** Called only after the original seed marker has been verified by the demo coordinator. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Actors existing() {
+        var admin = accounts.findFirstByRoleOrderByCreatedAtAscIdAsc(Role.ADMIN)
+                .orElseThrow(() -> new IllegalStateException("Demo upgrade requires an existing administrator."));
+        return new Actors(active(admin, Role.ADMIN), existing("employee@demo.test", Role.EMPLOYEE),
+                existing("customer@demo.test", Role.CUSTOMER));
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public AccountPrincipal createHistoryCustomer(String password) {
+        return create("history@demo.test", "Historia", Role.CUSTOMER, password);
+    }
+
+    private AccountPrincipal existing(String email, Role role) {
+        return active(accounts.findByEmail(email)
+                .orElseThrow(() -> new IllegalStateException("Demo upgrade requires its original accounts.")), role);
+    }
+
+    private AccountPrincipal active(Account account, Role role) {
+        if (account.role() != role || account.status() != AccountStatus.ACTIVE) {
+            throw new IllegalStateException("Demo upgrade requires active accounts with their original roles.");
+        }
+        return principal(account);
+    }
+
     private AccountPrincipal create(String email, String firstName, Role role, String password) {
         if (accounts.existsByEmail(email)) {
             throw new IllegalStateException("Demo account email is already in use; no existing account will be changed.");

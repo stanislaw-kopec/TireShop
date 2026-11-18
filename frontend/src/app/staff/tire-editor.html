@@ -17,6 +17,10 @@
     <h2>Magazyn</h2>
     @if (stock(); as s) { <p>Stan fizyczny: {{ s.onHand }} · Zarezerwowane: {{ s.reserved }} · Dostępne: {{ s.available }}</p> }
     <button (click)="refreshStock()" [disabled]="action.busy()">Odśwież stan</button>
+    <button (click)="showHistory.set(!showHistory())" [attr.aria-expanded]="showHistory()">
+      {{ showHistory() ? 'Ukryj historię magazynu' : 'Pokaż historię magazynu' }}
+    </button>
+    @if (showHistory()) { <app-inventory-history [productId]="product.id" [revision]="historyRevision()" /> }
     @if (pending(); as op) {
       <p>Oczekujący zapis: {{ op['quantityDelta'] }} szt. · {{ op['reason'] }}</p>
       <button (click)="move(true)" [disabled]="action.busy()">Ponów ten sam zapis</button>

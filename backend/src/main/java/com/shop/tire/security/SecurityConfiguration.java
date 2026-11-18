@@ -78,7 +78,7 @@ public class SecurityConfiguration {
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/tires", "/api/tires/*", "/api/manufacturers").permitAll()
                         .requestMatchers("/api/auth/register", "/api/auth/login", "/api/auth/password-actions/complete",
-                                "/api/hello", "/actuator/health", "/actuator/health/**",
+                                "/actuator/health", "/actuator/health/**",
                                 "/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll()
                         .requestMatchers("/api/auth/logout").authenticated()
                         .requestMatchers("/api/guest/cart", "/api/guest/cart/**").permitAll()

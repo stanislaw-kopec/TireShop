@@ -5,14 +5,15 @@ import { AccountService } from '../account/account';
 import { Order, OrderSummary, orderStatuses } from '../checkout/checkout-api';
 import { priceFormat } from '../catalog/catalog-api';
 import { AdminAccounts } from './admin-accounts';
+import { AdminAudit } from './admin-audit';
 import { FulfillmentEditor } from './fulfillment-editor';
 import { FormAction, Page, StaffApi } from './staff-api';
 import { StaffTire, TireEditor } from './tire-editor';
 
-type Tab = 'tires' | 'orders' | 'accounts';
+type Tab = 'tires' | 'orders' | 'accounts' | 'audit';
 
 @Component({
-  selector: 'app-staff-workspace', imports: [FormsModule, AdminAccounts, FulfillmentEditor, TireEditor],
+  selector: 'app-staff-workspace', imports: [FormsModule, AdminAccounts, AdminAudit, FulfillmentEditor, TireEditor],
   templateUrl: './staff-panel.html', styleUrls: ['../account/forms.css', './staff.css'],
 })
 class StaffWorkspace implements OnInit {
@@ -36,7 +37,7 @@ class StaffWorkspace implements OnInit {
     this.editing.set(false);
     this.orderId.set('');
     this.action.message.set('');
-    if (tab !== 'accounts') this.list(0);
+    if (tab === 'tires' || tab === 'orders') this.list(0);
   }
 
   protected list(page: number) {

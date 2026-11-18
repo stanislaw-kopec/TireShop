@@ -2,13 +2,14 @@ import { Component, OnInit, inject, input, output, signal } from '@angular/core'
 import { FormsModule } from '@angular/forms';
 import { PublicTire, Season, priceFormat, seasons } from '../catalog/catalog-api';
 import { FormAction, StaffApi } from './staff-api';
+import { InventoryHistory } from './inventory-history';
 
 export type StaffTire = Omit<PublicTire, 'priceGross'> & { priceGross: number | null; onSale: boolean };
 type Specs = Pick<StaffTire, 'manufacturer' | 'model' | 'widthMm' | 'aspectRatio' | 'rimDiameterIn' | 'season' | 'imageUrl'>;
 interface Stock { onHand: number; reserved: number; available: number }
 
 @Component({
-  selector: 'app-tire-editor', imports: [FormsModule],
+  selector: 'app-tire-editor', imports: [FormsModule, InventoryHistory],
   templateUrl: './tire-editor.html', styleUrls: ['../account/forms.css', './staff.css'],
 })
 export class TireEditor implements OnInit {
@@ -19,6 +20,8 @@ export class TireEditor implements OnInit {
   protected readonly action = new FormAction();
   protected readonly tire = signal<StaffTire | null>(null);
   protected readonly stock = signal<Stock | null>(null);
+  protected readonly showHistory = signal(false);
+  protected readonly historyRevision = signal(0);
   protected readonly money = priceFormat;
   protected readonly seasons = seasons;
   protected specs: Specs = { manufacturer: '', model: '', widthMm: 205, aspectRatio: 55, rimDiameterIn: 16,
@@ -62,6 +65,7 @@ export class TireEditor implements OnInit {
   protected refreshStock() { void this.action.run(() => this.loadStock()); }
   private async loadStock() {
     this.stock.set(await this.api.request<Stock>('GET', 'employee/inventory/' + this.tire()!.id));
+    this.historyRevision.update(value => value + 1);
   }
 
   protected pending() { return this.api.pending(`inventory/${this.tire()!.id}`); }

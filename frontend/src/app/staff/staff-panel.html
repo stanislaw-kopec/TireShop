@@ -5,9 +5,11 @@
     <button [disabled]="action.busy()" [attr.aria-pressed]="tab() === 'orders'" (click)="show('orders')">Zamówienia</button>
   } @else {
     <button [disabled]="action.busy()" [attr.aria-pressed]="tab() === 'accounts'" (click)="show('accounts')">Konta</button>
+    <button [disabled]="action.busy()" [attr.aria-pressed]="tab() === 'audit'" (click)="show('audit')">Dziennik zdarzeń</button>
   }
 </nav>
 @if (tab() === 'accounts') { <app-admin-accounts /> }
+@else if (tab() === 'audit' && !employee) { <app-admin-audit /> }
 @else if (editing()) { <app-tire-editor [initial]="selected()" (close)="list(tires()?.page ?? 0)" /> }
 @else if (orderId()) { <app-fulfillment-editor [id]="orderId()" (close)="list(orders()?.page ?? 0)" /> }
 @else {

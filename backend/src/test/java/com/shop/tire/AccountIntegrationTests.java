@@ -64,12 +64,12 @@ class AccountIntegrationTests {
         try (var client = new Client()) {
             assertThat(client.get("/actuator/health").statusCode()).isEqualTo(200);
             assertThat(client.get("/actuator/health").body()).contains("\"status\":\"UP\"");
-            assertThat(client.get("/api/hello").body()).isEqualTo("Hello World!");
             var docs = client.get("/v3/api-docs");
             assertThat(docs.statusCode()).isEqualTo(200);
             assertThat(body(docs).path("paths").has("/api/auth/logout")).isTrue();
             assertThat(body(docs).at("/components/securitySchemes/bearerAuth/scheme").asText()).isEqualTo("bearer");
             assertThat(body(docs).path("paths").has("/api/auth/csrf")).isFalse();
+            assertThat(body(docs).path("paths").has("/api/hello")).isFalse();
             assertThat(jdbc.queryForObject("select count(*) from information_schema.tables where table_schema='public' and table_name like 'spring_session%'", Integer.class)).isZero();
             assertThat(client.get("/swagger-ui/index.html").statusCode()).isEqualTo(200);
             assertThat(jdbc.queryForObject("select count(*) from flyway_schema_history where success", Integer.class)).isEqualTo(11);
