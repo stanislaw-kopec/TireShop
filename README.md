@@ -16,6 +16,8 @@ Zaloguj się jako `customer@demo.test`, `employee@demo.test` lub `admin@demo.tes
 
 ## Backend — uruchomienie lokalne
 
+Opis domen i ich podpakietów (`controller`, `service`, `repository`, `dto`, `entity`, `model`): [struktura backendu](docs/backend-structure.md).
+
 Wymagania: JDK 25 (`JAVA_HOME` wskazujący katalog JDK) oraz uruchomiony Docker Desktop z kontenerami Linux. Maven pobiera się automatycznie przez wrapper.
 
 Z katalogu projektu w PowerShell:

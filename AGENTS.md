@@ -142,6 +142,7 @@ Logowanie jest dostępne podczas przeglądania katalogu, w koszyku i przed zło�
 - Przewidywane pakiety: `catalog`, `cart`, `order`, `payment`, `account`, `inventory`.
 - Twórz pakiety dopiero wraz z implementacją ich funkcji. Podział może być doprecyzowany, jeżeli wynika to z rzeczywistych zależności.
 - Kontroler, serwis, repozytorium, encje i DTO danej domeny trzymaj w jej pakiecie. Podpakiety dodawaj, gdy poprawiają czytelność.
+- Decyzja z 18 listopada 2026: domeny `account`, `catalog`, `cart`, `inventory`, `order` i `payment` mają podpakiety według odpowiedzialności: `controller`, `service`, `repository`, `dto`, `entity` (encje JPA), `model` (typy i reguły domenowe), a w razie potrzeby `config`, `event` i `job`. Twórz wyłącznie używane podpakiety. Mniejsze domeny i mechanizmy techniczne mogą pozostać płaskie. Testy jednostkowe odzwierciedlają pakiety testowanego kodu; testy integracyjne obejmujące kilka domen pozostają wyżej. Pola encji są prywatne, a zmiany przechodzą przez jawne metody zamiast publicznych pól.
 - Nie twórz globalnych pakietów `controllers`, `services`, `repositories`, `entities` i `dtos` skupiających wszystkie domeny.
 - Wspólne mechanizmy techniczne, takie jak obsługa błędów i konfiguracja bezpieczeństwa, mogą mieć małe, jasno nazwane pakiety, np. `shared.error` i `security`. Nie twórz worka `utils` na logikę domenową.
 - Unikaj cyklicznych zależności. Operacje zmieniające cudzą domenę wykonuj przez jej jasno określone operacje, zamiast omijać reguły przez bezpośrednie zapisy do jej repozytorium.

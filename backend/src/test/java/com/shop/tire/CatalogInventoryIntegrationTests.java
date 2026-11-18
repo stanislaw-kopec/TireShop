@@ -50,8 +50,8 @@ class CatalogInventoryIntegrationTests {
     @Autowired ObjectMapper json;
     @Autowired JdbcTemplate jdbc;
     @Autowired PasswordEncoder encoder;
-    @Autowired com.shop.tire.order.OrderService orders;
-    @Autowired com.shop.tire.order.OrderMailDelivery delivery;
+    @Autowired com.shop.tire.order.service.OrderService orders;
+    @Autowired com.shop.tire.order.service.OrderMailDelivery delivery;
     @Autowired java.time.Clock clock;
     @Autowired org.springframework.context.ApplicationEventPublisher events;
     @Autowired org.springframework.transaction.PlatformTransactionManager transactions;
@@ -1342,13 +1342,13 @@ class CatalogInventoryIntegrationTests {
         UUID orderId = UUID.randomUUID();
         var transaction = new org.springframework.transaction.support.TransactionTemplate(transactions);
         transaction.executeWithoutResult(status -> {
-            events.publishEvent(new com.shop.tire.order.OrderCreated(orderId, null, clock.instant()));
+            events.publishEvent(new com.shop.tire.order.event.OrderCreated(orderId, null, clock.instant()));
             assertThat(jdbc.queryForObject("select count(*) from audit_log", Integer.class)).isZero();
             status.setRollbackOnly();
         });
         assertThat(jdbc.queryForObject("select count(*) from audit_log", Integer.class)).isZero();
         transaction.executeWithoutResult(status -> {
-            events.publishEvent(new com.shop.tire.order.OrderCreated(orderId, null, clock.instant()));
+            events.publishEvent(new com.shop.tire.order.event.OrderCreated(orderId, null, clock.instant()));
             assertThat(jdbc.queryForObject("select count(*) from audit_log", Integer.class)).isZero();
         });
         assertThat(jdbc.queryForObject("select count(*) from audit_log", Integer.class)).isEqualTo(1);

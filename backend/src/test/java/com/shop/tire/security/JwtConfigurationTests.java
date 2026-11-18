@@ -1,6 +1,6 @@
 package com.shop.tire.security;
 
-import com.shop.tire.account.AccountPrincipal;
+import com.shop.tire.account.model.AccountPrincipal;
 import java.security.SecureRandom;
 import java.time.*;
 import java.util.Base64;

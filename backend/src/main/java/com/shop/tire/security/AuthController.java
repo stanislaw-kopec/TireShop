@@ -1,6 +1,11 @@
 package com.shop.tire.security;
 
-import com.shop.tire.account.*;
+import com.shop.tire.account.dto.AccountRequests;
+import com.shop.tire.account.dto.AccountResponse;
+import com.shop.tire.account.model.AccountPrincipal;
+import com.shop.tire.account.service.AccountActionService;
+import com.shop.tire.account.service.AccountAuthenticationService;
+import com.shop.tire.account.service.AccountService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.*;
 import org.springframework.http.HttpStatus;

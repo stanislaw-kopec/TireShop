@@ -1,16 +1,16 @@
 package com.shop.tire.security;
 
-import com.shop.tire.account.AccountAuthenticationService;
+import com.shop.tire.account.service.AccountAuthenticationService;
 import com.shop.tire.shared.error.ApiProblems;
 import jakarta.servlet.DispatcherType;
 import java.time.Clock;
 import java.util.List;
 import java.util.Map;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.*;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.*;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;

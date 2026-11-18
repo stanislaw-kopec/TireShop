@@ -1,6 +1,8 @@
 package com.shop.tire;
 
-import com.shop.tire.account.*;
+import com.shop.tire.account.dto.AccountRequests;
+import com.shop.tire.account.service.AccountService;
+import com.shop.tire.account.service.DemoAccounts;
 import com.shop.tire.demo.*;
 import java.net.URI;
 import java.net.http.*;
@@ -18,6 +20,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.testcontainers.junit.jupiter.*;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import tools.jackson.databind.*;
+
 import static org.assertj.core.api.Assertions.*;
 
 @Testcontainers

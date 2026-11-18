@@ -1,0 +1,131 @@
+package com.shop.tire.cart.service;
+
+import com.shop.tire.cart.dto.CartResponse;
+import com.shop.tire.cart.model.CartTotals;
+import com.shop.tire.cart.repository.CartRepository;
+import com.shop.tire.catalog.service.CatalogService;
+import com.shop.tire.shared.error.DomainException;
+import com.shop.tire.shared.security.OpaqueTokens;
+import java.time.*;
+import java.time.temporal.ChronoUnit;
+import java.util.*;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import static com.shop.tire.shared.error.DomainException.Kind.*;
+
+@Service
+@Transactional
+public class CartService {
+    public record CheckoutCart(UUID id, CartResponse contents) {}
+    public record GuestCreated(String token, Instant expiresAt, CartResponse cart) {}
+    private final CartRepository carts;
+    private final CatalogService catalog;
+    private final Clock clock;
+    public CartService(CartRepository carts, CatalogService catalog, Clock clock) {
+        this.carts = carts; this.catalog = catalog; this.clock = clock;
+    }
+    public GuestCreated createGuest() {
+        String token = OpaqueTokens.create();
+        Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
+        Instant expires = now.plus(Duration.ofHours(24));
+        carts.createGuest(UUID.randomUUID(), hash(token), now, expires);
+        return new GuestCreated(token, expires, view(Map.of()));
+    }
+    public CartResponse guest(String token) { return view(carts.items(activeGuest(token).id())); }
+    public CartResponse guestPut(String token, UUID product, int quantity) { return put(activeGuest(token).id(), product, quantity); }
+    public CartResponse guestDelete(String token, UUID product) { return delete(activeGuest(token).id(), product); }
+
+    public CheckoutCart guestCheckout(String token) {
+        var cart = activeGuest(token);
+        return new CheckoutCart(cart.id(), view(carts.items(cart.id())));
+    }
+    @PreAuthorize("hasRole('CUSTOMER') and #accountId == authentication.principal.accountId()")
+    public CheckoutCart accountCheckout(UUID accountId) {
+        UUID id = carts.account(accountId, false, clock.instant()).orElseThrow(() -> conflict("EMPTY_CART", "Koszyk jest pusty."));
+        return new CheckoutCart(id, view(carts.items(id)));
+    }
+    // Internal operations: order uses the cart ID from its authenticated, server-issued quote only.
+    @org.springframework.transaction.annotation.Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public CartResponse checkoutContents(UUID cartId) {
+        var cart = carts.lockForCheckout(cartId).orElseThrow(CartService::notFound);
+        if (cart.mergedAccountId() != null || (cart.expiresAt() != null && !clock.instant().isBefore(cart.expiresAt()))) throw notFound();
+        return view(carts.items(cartId));
+    }
+    @org.springframework.transaction.annotation.Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    public void completeCheckout(UUID cartId) { carts.clear(cartId); }
+
+    @PreAuthorize("hasRole('CUSTOMER') and #accountId == authentication.principal.accountId()")
+    public CartResponse account(UUID accountId) {
+        return carts.account(accountId, false, clock.instant()).map(id -> view(carts.items(id))).orElseGet(() -> view(Map.of()));
+    }
+    @PreAuthorize("hasRole('CUSTOMER') and #accountId == authentication.principal.accountId()")
+    public CartResponse accountPut(UUID accountId, UUID product, int quantity) {
+        return put(carts.account(accountId, true, clock.instant()).orElseThrow(), product, quantity);
+    }
+    @PreAuthorize("hasRole('CUSTOMER') and #accountId == authentication.principal.accountId()")
+    public CartResponse accountDelete(UUID accountId, UUID product) {
+        return carts.account(accountId, false, clock.instant()).map(id -> delete(id, product)).orElseGet(() -> view(Map.of()));
+    }
+    @PreAuthorize("hasRole('CUSTOMER') and #accountId == authentication.principal.accountId()")
+    public CartResponse merge(UUID accountId, String token) {
+        // Consistent lock order: guest first, then account. All item writes lock their parent cart.
+        var guest = guestRecord(token);
+        if (guest.mergedAccountId() != null && !guest.mergedAccountId().equals(accountId)) throw notFound();
+        UUID target = carts.account(accountId, true, clock.instant()).orElseThrow();
+        var merged = carts.items(target);
+        if (guest.mergedAccountId() != null) return view(merged);
+        carts.items(guest.id()).forEach((product, quantity) -> {
+            long total = (long) merged.getOrDefault(product, 0) + quantity;
+            if (total > Integer.MAX_VALUE) throw conflict("CART_QUANTITY_LIMIT", "Przekroczono limit ilości.");
+            merged.put(product, (int) total);
+        });
+        checkSize(merged);
+        var result = view(merged);
+        if (result.items().stream().anyMatch(item -> item.issue() != CartResponse.Issue.NONE)) {
+            throw conflict("CART_MERGE_UNAVAILABLE", "Nie można scalić koszyków. Sprawdź dostępność i popraw ilości; oba koszyki pozostały bez zmian.");
+        }
+        merged.forEach((product, quantity) -> carts.put(target, product, quantity));
+        carts.merged(guest.id(), accountId);
+        return result;
+    }
+    private CartResponse put(UUID cart, UUID product, int quantity) {
+        if (quantity <= 0) throw new DomainException(INVALID_INPUT, "INVALID_QUANTITY", "Ilość musi być dodatnia.");
+        var selected = catalog.cartProducts(List.of(product));
+        if (selected.isEmpty()) throw new DomainException(NOT_FOUND, "PRODUCT_NOT_FOUND", "Nie znaleziono produktu.");
+        var tire = selected.getFirst();
+        if (!tire.onSale() || tire.priceGross() == null || quantity > tire.availableQuantity()) {
+            throw conflict("CART_PRODUCT_UNAVAILABLE", "Produkt nie jest dostępny w wybranej ilości.");
+        }
+        var items = carts.items(cart);
+        items.put(product, quantity);
+        checkSize(items);
+        carts.put(cart, product, quantity);
+        return view(items);
+    }
+    private CartResponse delete(UUID cart, UUID product) {
+        carts.delete(cart, product);
+        return view(carts.items(cart));
+    }
+    private CartResponse view(Map<UUID, Integer> items) { return CartTotals.calculate(items, catalog.cartProducts(items.keySet())); }
+    private void checkSize(Map<UUID, Integer> items) {
+        if (items.size() > 100) throw conflict("CART_SIZE_LIMIT", "Koszyk może zawierać maksymalnie 100 różnych produktów.");
+    }
+    private CartRepository.Cart activeGuest(String token) {
+        var cart = guestRecord(token);
+        if (cart.mergedAccountId() != null) throw notFound();
+        return cart;
+    }
+    private CartRepository.Cart guestRecord(String token) {
+        if (!OpaqueTokens.valid(token)) throw notFound();
+        var cart = carts.guest(hash(token)).orElseThrow(CartService::notFound);
+        if (!clock.instant().isBefore(cart.expiresAt())) throw notFound();
+        return cart;
+    }
+    private static String hash(String token) {
+        return OpaqueTokens.hash(token);
+    }
+    private static DomainException notFound() { return new DomainException(NOT_FOUND, "CART_NOT_FOUND", "Koszyk jest niedostępny."); }
+    private static DomainException conflict(String code, String message) { return new DomainException(CONFLICT, code, message); }
+}

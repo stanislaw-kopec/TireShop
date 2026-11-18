@@ -1,7 +1,7 @@
 package com.shop.tire.audit;
 
-import com.shop.tire.order.OrderCancelled;
-import com.shop.tire.order.OrderCreated;
+import com.shop.tire.order.event.OrderCancelled;
+import com.shop.tire.order.event.OrderCreated;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

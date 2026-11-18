@@ -1,0 +1,17 @@
+package com.shop.tire.catalog.repository;
+
+import com.shop.tire.catalog.entity.TireProduct;
+import jakarta.persistence.LockModeType;
+import java.util.Optional;
+import java.util.UUID;
+import org.springframework.data.jpa.repository.*;
+
+public interface TireRepository extends JpaRepository<TireProduct, UUID> {
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select p from TireProduct p where p.id = :id")
+    Optional<TireProduct> findLockedById(UUID id);
+
+    @Lock(LockModeType.PESSIMISTIC_READ)
+    @Query("select p from TireProduct p where p.id = :id")
+    Optional<TireProduct> findForCheckoutById(UUID id);
+}

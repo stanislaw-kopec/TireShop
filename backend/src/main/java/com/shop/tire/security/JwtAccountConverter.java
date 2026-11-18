@@ -1,6 +1,6 @@
 package com.shop.tire.security;
 
-import com.shop.tire.account.AccountAuthenticationService;
+import com.shop.tire.account.service.AccountAuthenticationService;
 import java.util.UUID;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.security.authentication.AbstractAuthenticationToken;

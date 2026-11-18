@@ -1,6 +1,6 @@
 package com.shop.tire.security;
 
-import com.shop.tire.account.AccountPrincipal;
+import com.shop.tire.account.model.AccountPrincipal;
 import java.time.Clock;
 import java.util.List;
 import java.util.UUID;
