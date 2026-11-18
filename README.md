@@ -1,152 +1,244 @@
-# TireShop
+# TireShop — internetowy sklep z oponami
 
 [![CI](https://github.com/stanislaw-kopec/TireShop/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/stanislaw-kopec/TireShop/actions/workflows/ci.yml)
 
-## Demo w Dockerze
+TireShop to aplikacja sklepu internetowego umożliwiająca zakup opon jako gość lub zalogowany klient. Obejmuje katalog z filtrami, koszyk, składanie zamówień, symulator płatności oraz panele klienta, pracownika i administratora.
 
-Włącz Docker Desktop i w głównym katalogu `TireShop` uruchom:
+Frontend powstał w **Angularze**, a backend w **Javie i Spring Boot**. Dane są przechowywane w **PostgreSQL**. Angular komunikuje się z rzeczywistym REST API — ceny, dostępność, uprawnienia, płatności i statusy zamówień są sprawdzane po stronie backendu.
 
-```powershell
+Projekt został przygotowany na zajęcia z budowania aplikacji internetowych. Wykorzystuje zasady omawiane na przykładach ExpressJS, dostosowane do Springa. Płatności są symulowane, a poczta w środowisku demo trafia do lokalnego podglądu Mailpit.
+
+## Spis treści
+
+- [Uruchomienie w jednej komendzie](#uruchomienie-w-jednej-komendzie)
+- [Funkcjonalności i role](#funkcjonalności-i-role)
+- [Przebieg zakupu i reguły sklepu](#przebieg-zakupu-i-reguły-sklepu)
+- [Zastosowane technologie](#zastosowane-technologie)
+- [Architektura i organizacja kodu](#architektura-i-organizacja-kodu)
+- [Najważniejsze rozwiązania techniczne](#najważniejsze-rozwiązania-techniczne)
+- [Praca lokalna](#praca-lokalna)
+- [Testy i ciągła integracja](#testy-i-ciągła-integracja)
+- [Zakres wersji demonstracyjnej](#zakres-wersji-demonstracyjnej)
+- [Dokumentacja szczegółowa](#dokumentacja-szczegółowa)
+
+## Uruchomienie w jednej komendzie
+
+### Wymagania
+
+- Docker z Docker Compose **2.20 lub nowszym**; na Windows można użyć Docker Desktop z kontenerami Linux.
+- Uruchomiony silnik Dockera oraz wolne porty `4200`, `8081` i `8026`.
+- Internet podczas pierwszego budowania, aby pobrać obrazy i zależności.
+
+Do uruchomienia całego demo nie trzeba instalować lokalnie Javy, Mavena ani Node.js.
+
+### Start
+
+Otwórz terminal w głównym katalogu projektu, w którym znajduje się plik `compose.yaml`, i wykonaj:
+
+```sh
 docker compose up
 ```
 
-Docker zbuduje frontend Angular i backend Spring, uruchomi PostgreSQL i Mailpit oraz wczyta przykładowe opony i zamówienia. Otwórz [katalog TireShop](http://localhost:4200). API sprawdzisz w [Swagger UI](http://localhost:8081/swagger-ui/index.html), a wiadomości w [Mailpit](http://localhost:8026). [Instrukcja lokalnej pracy nad frontendem](frontend/README.md).
+Compose buduje frontend i backend, uruchamia PostgreSQL oraz Mailpit, wykonuje migracje bazy i przygotowuje dane demonstracyjne. Poczekaj na zakończenie budowania i uruchomienie backendu — pierwsze uruchomienie może potrwać kilka minut.
 
-Zaloguj się jako `customer@demo.test`, `employee@demo.test` lub `admin@demo.test`. Wspólne początkowe hasło znajdziesz w lokalnym pliku `.demo/password.txt`, który powstaje przy pierwszym starcie. Zachowaj katalog `.demo` razem z danymi prezentacji. PostgreSQL zapisuje je w osobnym wolumenie projektu `tireshop-demo`. `Ctrl+C` zatrzymuje prezentację. [Scenariusz pokazu](docs/demo.md).
+| Element | Adres |
+|---|---|
+| Sklep i panele użytkowników | [http://localhost:4200](http://localhost:4200) |
+| Swagger UI — interaktywna dokumentacja API | [http://localhost:8081/swagger-ui/index.html](http://localhost:8081/swagger-ui/index.html) |
+| Specyfikacja OpenAPI | [http://localhost:8081/v3/api-docs](http://localhost:8081/v3/api-docs) |
+| Stan backendu i połączenia z bazą | [http://localhost:8081/actuator/health](http://localhost:8081/actuator/health) |
+| Mailpit — podgląd wiadomości | [http://localhost:8026](http://localhost:8026) |
 
-## Backend — uruchomienie lokalne
+### Konta demonstracyjne
 
-Opis domen i ich podpakietów (`controller`, `service`, `repository`, `dto`, `entity`, `model`): [struktura backendu](docs/backend-structure.md).
+| Rola | E-mail | Przykładowe zastosowanie |
+|---|---|---|
+| Klient | `customer@demo.test` | Zakup, edycja adresu, historia zamówień. |
+| Pracownik | `employee@demo.test` | Produkty, magazyn i realizacja zamówień. |
+| Administrator | `admin@demo.test` | Ceny, dopuszczenie do sprzedaży i zarządzanie kontami. |
 
-Wymagania: JDK 25 (`JAVA_HOME` wskazujący katalog JDK) oraz uruchomiony Docker Desktop z kontenerami Linux. Maven pobiera się automatycznie przez wrapper.
+Wspólne początkowe hasło jest generowane przy pierwszym starcie i zapisywane w **`.demo/password.txt`**. Nie ma stałego hasła w kodzie. Można też zarejestrować własnego klienta lub kupić jako gość.
 
-Z katalogu projektu w PowerShell:
+Na nowej bazie demo zawiera **15 produktów**, w tym 12 dostępnych w publicznym katalogu, czterech producentów, koszyk klienta, sześć zamówień klienta i jedno opłacone zamówienie gościa. Pozostałe produkty pokazują brak ceny, wyłączenie sprzedaży i zerowy stan. Dane są dodawane raz; restart nie nadpisuje późniejszych zmian. Szczegóły i scenariusz prezentacji: [profil demo](docs/demo.md).
 
-```powershell
-cd backend
-# Tylko przy pierwszej konfiguracji: wygeneruj sekrety bez wyświetlania w logach.
-# Zachowaj wartości poza Git; w kolejnych terminalach ustaw te same sekrety.
-$jwtBytes = New-Object byte[] 32
-$rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
-$rng.GetBytes($jwtBytes)
-$env:JWT_SECRET = [Convert]::ToBase64String($jwtBytes)
-$trackingBytes = New-Object byte[] 32
-$rng.GetBytes($trackingBytes)
-$env:TRACKING_SECRET = [Convert]::ToBase64String($trackingBytes)
-$rng.Dispose()
-.\mvnw.cmd spring-boot:run
-```
+### Zatrzymanie i ponowne uruchomienie
 
-Domyślny profil `local` uruchamia PostgreSQL 17 oraz Mailpit (lokalny podgląd poczty) przez Docker Compose. Pierwszy start wymaga internetu do pobrania zależności i obrazów. Porty 8080, 15432, 1025 i 8025 muszą być wolne.
+- `Ctrl+C` zatrzymuje aplikację uruchomioną w terminalu.
+- `docker compose up -d` uruchamia ją w tle; `docker compose stop` zatrzymuje usługi.
+- Po zmianach w kodzie użyj `docker compose up --build`, aby przebudować obrazy.
+- `docker compose logs -f backend` pokazuje logi backendu.
 
-- Backend: http://localhost:8080
-- Powitanie (`GET`, tekst `Hello World!`): http://localhost:8080/api/hello
-- Stan aplikacji i połączenia z bazą: http://localhost:8080/actuator/health
-- Swagger UI: http://localhost:8080/swagger-ui/index.html
-- OpenAPI: http://localhost:8080/v3/api-docs
-- Podgląd lokalnej poczty (konta oraz linki śledzenia po zapłacie): http://localhost:8025
+PostgreSQL przechowuje dane w wolumenie projektu Compose `tireshop-demo`. Katalog `.demo/` zawiera hasło początkowe i trwałe sekrety — zachowaj go razem z bazą. Zwykłe zatrzymanie kontenerów nie usuwa danych. Nie używaj `docker compose down -v`, jeśli chcesz je zachować.
 
-Backend obejmuje konta, logowanie JWT, adresy, zaproszenia pracowników, resetowanie haseł, katalog, magazyn, koszyk, zamówienia z 15-minutową rezerwacją, symulator płatności, linki śledzenia gościa z pocztą po zapłacie oraz realizację zamówień przez pracownika. Pracownik tworzy/edytuje produkty i zapisuje dostawy lub korekty, administrator ustala ceny i dopuszcza sprzedaż. Publiczny katalog ma filtry, paginację i sortowanie po cenie. Backend nie udostępnia strony pod `/`.
+## Funkcjonalności i role
 
-V9 dodaje [API realizacji zamówień](docs/fulfillment-api.md): listę z filtrem statusu, szczegóły, kolejne etapy PAID → PROCESSING → SHIPPED → DELIVERED i numer przesyłki wymagany przy wysyłce. Korekta numeru jest możliwa przed doręczeniem; klient i gość widzą aktualny numer. Operacje wymagają roli EMPLOYEE oraz operationId zapewniającego bezpieczne ponowienia. Migracja Flyway nie wymaga nowych ustawień środowiska.
+| Użytkownik | Dostępne funkcje |
+|---|---|
+| Gość | Katalog i szczegóły opon, filtry rozmiaru/sezonu/producenta, sortowanie cen, paginacja, koszyk, zakup bez konta, symulator płatności i śledzenie opłaconego zamówienia przez specjalny link. |
+| Klient (`CUSTOMER`) | Rejestracja i logowanie, własny koszyk, scalenie koszyka gościa po zalogowaniu, edycja danych i adresu, zakup, historia i szczegóły własnych zamówień, status i numer przesyłki. |
+| Pracownik (`EMPLOYEE`) | Dodawanie i edycja parametrów oraz zdjęcia produktu, przyjęcia i korekty magazynowe, historia magazynu, przegląd zamówień i danych dostawy, obsługa realizacji i numeru przesyłki. |
+| Administrator (`ADMIN`) | Ustalanie cen, dopuszczanie i wycofywanie produktów ze sprzedaży, zapraszanie pracowników, inicjowanie resetu hasła klienta/pracownika oraz odczyt dziennika zdarzeń przez API. |
 
-V8 dodaje [linki śledzenia gościa i kolejkę poczty](docs/tracking-api.md). Link jest ważny 90 dni, udostępnia wyłącznie status i numer przesyłki. Można go odnowić na e-mail zapisany w zamówieniu; odpowiedź API nie ujawnia tokenu ani istnienia zamówienia. Awaria SMTP nie cofa zapłaty; kolejka ponawia wysyłkę do 5 prób. Ustaw nowy, trwały TRACKING_SECRET (Base64 dokładnie 32 losowych bajtów) również w konfiguracji IntelliJ. Wygeneruj go raz i zachowaj poza repozytorium — nie generuj nowego przy każdym starcie, gdy istnieją już zaszyfrowane linki/wiadomości. TRACKING_LINK_URL domyślnie wskazuje przyszły Angular: http://localhost:4200/track-order. API można przetestować w Swaggerze bez frontendu.
+Pracownik nie ustala cen. Administrator nie dziedziczy automatycznie uprawnień pracownika. Publiczna rejestracja tworzy wyłącznie konto klienta. Dziennik zdarzeń administratora jest dostępny w Swaggerze przez `GET /api/admin/audit-log`; nie ma osobnego ekranu audytu w Angularze.
 
-V7 dodaje [API symulatora płatności](docs/payment-api.md): próby dla klienta i gościa, wybór sukcesu/odrzucenia/anulowania oraz bezpieczne ponowienia. Sukces ustawia PAID i atomowo wydaje towar z rezerwacji, zapisując SALE w historii magazynu. Kwota pochodzi z zamówienia; próby nie przedłużają 15 minut. Nie ma prawdziwych płatności ani formularza kart. Migracja uruchamia się standardowo przez Flyway; nie wymaga nowych zmiennych środowiska.
+## Przebieg zakupu i reguły sklepu
 
-V5 dodaje koszyki i ich pozycje. [API koszyka](docs/cart-api.md) opisuje token gościa w `X-Cart-Token` (dla przyszłego Angulara: sessionStorage, bez cookie), podsumowanie cen i dostawy oraz scalanie po zalogowaniu. Konflikt dostępności zachowuje oba koszyki. Testy obejmują także prywatność koszyków, dostawę dla 3/4 sztuk, aktualizację cen, wygasanie tokenu i równoczesne ponowienia scalania.
-
-V6 dodaje podsumowania i zamówienia. [API zamówień](docs/order-api.md) opisuje potwierdzanie aktualnej ceny, token zakupu gościa (`X-Purchase-Token`), ponawianie „Zapłać”, dostęp klienta i anulowanie nieopłaconych. Utworzenie zamówienia zapisuje dane historyczne, atomowo rezerwuje wszystkie sztuki i czyści koszyk. Zadanie co 15 sekund zwalnia wygasłe rezerwacje. Nie oznacza jeszcze zapłaty — status nowego zamówienia to PENDING_PAYMENT. Testy obejmują rywalizację o ostatnie sztuki, rollback, niezmienność cen/adresu oraz granicę wygaśnięcia i wyścig z anulowaniem.
-
-Przełożenie materiałów z laboratoriów na Springa: [zasady laboratoryjne](docs/lab-guidelines.md).
-
-Kontrakt i przykłady wywołań: [API kont i logowania](docs/backend-api.md), [API katalogu i magazynu](docs/catalog-api.md). W drugim dokumencie jest instrukcja przygotowania pierwszej oferty przez Swagger. Publiczna lista: http://localhost:8080/api/tires — początkowo pusta. Wymagania: [AGENTS.md](AGENTS.md). Projekt bazy: [docs/backend-design.md](docs/backend-design.md).
-
-Springdoc używa poprawki 3.1.1 ze względu na [błąd generowania schematów parametrów z walidacją w 3.1.0](https://github.com/springdoc/springdoc-openapi/issues/3314), ujawniony przez filtry katalogu. Java i Spring Boot pozostają w dotychczasowych wersjach.
-
-W IntelliJ ustaw `JWT_SECRET` w **Run → Edit Configurations → Environment variables** (wygenerowana wartość Base64 co najmniej 32 losowych bajtów; nie hasło wymyślone ręcznie). Bez poprawnego sekretu start zakończy się czytelnym błędem. Używaj tej samej wartości przy restartach, jeśli wcześniej wydane tokeny mają nadal działać; zmiana klucza je unieważnia. Nie zapisuj sekretu w współdzielonej konfiguracji IDE/Git. Lista ustawień: [backend/.env.example](backend/.env.example); plik jest wzorem, nie konfiguracją automatycznie wczytywaną przez Spring.
-
-W IntelliJ uruchom klasę `com.shop.tire.Application` i wybierz JDK 25. Katalog roboczy może wskazywać główny katalog `TireShop` lub `backend`. Profil lokalny odczytuje `compose.local.yaml` i uruchamia usługi projektu `tireshop` z `backend/compose.yaml` (Docker Compose 2.20+). Dla innego katalogu roboczego ustaw zmienną `COMPOSE_FILE` na pełną ścieżkę do `backend/compose.yaml`.
-
-## Baza danych
-
-Lokalne parametry: host `localhost`, port `15432`, baza i użytkownik `tireshop`, hasło `tireshop_local`. Są przeznaczone wyłącznie do pracy lokalnej. Baza jest dostępna tylko na interfejsie lokalnym, a dane pozostają w wolumenie Dockera po restarcie.
-
-Zatrzymanie backendu: `Ctrl+C`. Baza pozostaje uruchomiona. Aby ją zatrzymać, wykonaj z katalogu `backend`:
-
-```powershell
-docker compose stop
-```
-
-Dla istniejącej bazy ustaw `SPRING_PROFILES_ACTIVE=external` oraz `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`. Profil ten nie uruchamia Dockera. `SERVER_PORT` zmienia port HTTP. Nie zapisuj rzeczywistych haseł w repozytorium. Pliki `.env` nie są automatycznie wczytywane przez Spring — ustaw zmienne w terminalu lub konfiguracji uruchomienia IDE.
-
-Flyway wykonuje migracje z `backend/src/main/resources/db/migration`. V1 tworzy konta, adresy i jednorazowe tokeny. Historyczna V2 tworzyła sesje; V3 usuwa ich dwie techniczne tabele po przejściu na JWT. V4 dodaje producentów, opony, magazyn i historię zmian stanu. Dotychczasowe zalogowania sesyjne przestają działać, konta i hasła pozostają. Nie zmieniaj wykonanych migracji ani nie czyść bazy. Hibernate sprawdza zgodność schematu (`ddl-auto=validate`).
-
-## Pierwszy administrator
-
-Do prezentacji możesz zamiast ręcznego przygotowania danych użyć [profilu demo](docs/demo.md). Dodaje 15 produktów, konta i przykładowe zamówienia; działa wyłącznie po jawnym włączeniu i nie nadpisuje danych przy restarcie.
-
-W konfiguracji uruchomienia IntelliJ dodaj zmienne środowiskowe:
+1. Klient wybiera opony z katalogu i dodaje odpowiednią liczbę sztuk do koszyka.
+2. Przechodzi do zakupu jako gość albo loguje się na konto. Koszyk gościa można połączyć z koszykiem konta.
+3. Podaje kontakt i adres lub sprawdza dane pobrane z profilu. Widzi aktualne podsumowanie produktów, dostawy i całej kwoty.
+4. Kliknięcie **„Zapłać”** tworzy zamówienie i rezerwuje towar na **15 minut**.
+5. Symulator pozwala wybrać sukces, odrzucenie lub anulowanie próby płatności. Backend zapisuje wynik.
+6. Po zapłacie klient śledzi zamówienie w swoim panelu, a gość otrzymuje link na ekranie potwierdzenia i w wiadomości e-mail.
+7. Pracownik realizuje zamówienie, uzupełnia numer przesyłki i potwierdza doręczenie.
 
 ```text
-ADMIN_BOOTSTRAP_ENABLED=true
-ADMIN_EMAIL=twój-adres-administratora
-ADMIN_PASSWORD=twoje-silne-hasło-od-12-do-128-znaków
+PENDING_PAYMENT → PAID → PROCESSING → SHIPPED → DELIVERED
+       ↓
+   CANCELLED
 ```
 
-Wprowadź własny poprawny e-mail i hasło. Po pierwszym starcie usuń te zmienne. Inicjalizacja tworzy administratora tylko wtedy, gdy żaden jeszcze nie istnieje; nie zmienia hasła istniejącego konta ani nie nadaje roli administratora istniejącemu klientowi. Bez tych zmiennych aplikacja działa, ale nie tworzy domyślnego administratora.
+Najważniejsze reguły:
 
-## JWT i poczta
+- Ceny są podawane brutto w **PLN**. Dostawa kosztuje **20 zł dla 1–3 sztuk** i jest **bezpłatna od 4 sztuk**, niezależnie od modeli i producentów.
+- Koszyk nie rezerwuje towaru. Nieopłacone zamówienie można anulować; po wygaśnięciu rezerwacji zostaje anulowane automatycznie.
+- Odrzucenie lub anulowanie próby płatności pozwala ponowić ją do pierwotnego terminu rezerwacji, bez jego przedłużania.
+- Backend oblicza kwoty i ponownie sprawdza dostępność. Zmiana ceny lub zawartości wymaga zatwierdzenia nowego podsumowania.
+- Zamówienie zachowuje kopię produktów, cen i adresu. Późniejsze zmiany katalogu lub profilu nie zmieniają historii zakupów.
+- Wysłanie wymaga numeru przesyłki. Pracownik może poprawić go przed doręczeniem.
 
-Logowanie zwraca JSON z `accessToken`, `tokenType: Bearer` i `expiresIn: 900`. Kolejne chronione żądania wysyłają `Authorization: Bearer <accessToken>`. Nie ma cookie sesji ani pobierania CSRF. W Swaggerze wykonaj logowanie, a następnie wklej sam token w **Authorize**.
+## Zastosowane technologie
 
-Token wygasa po 15 minutach; nie ma refresh tokenów. Po wygaśnięciu zaloguj się ponownie. Publiczna rejestracja tworzy klienta, ale nie loguje go automatycznie. `POST /api/auth/logout` unieważnia wszystkie dotychczasowe tokeny konta; klient usuwa też token z pamięci. Reset hasła lub wyłączenie konta również odbiera dostęp wcześniejszym tokenom.
+Wersje odnoszą się do konfiguracji projektu.
 
-Weryfikacja obejmuje HS256, podpis, czas, issuer, audience oraz aktualną rolę/status i wersję uwierzytelnienia konta. Backend nie przechowuje sesji HTTP, ale odczytuje konto, aby móc natychmiast odebrać dostęp. Nie umieszczaj tokenu w URL ani logach. Przyszły Angular powinien domyślnie przechowywać go w pamięci aplikacji.
+| Obszar | Technologie i zastosowanie |
+|---|---|
+| Backend | **Java 25**, **Spring Boot 4.1.1**, Spring MVC — REST API. |
+| Uwierzytelnianie | Spring Security, OAuth2 Resource Server — weryfikacja JWT Bearer i uprawnień. |
+| Dane | **PostgreSQL 17**, Spring Data JPA/Hibernate oraz JDBC — trwały zapis, zapytania i blokady. |
+| Migracje i walidacja | Flyway, Jakarta Bean Validation, ograniczenia bazy danych. |
+| Dokumentacja i diagnostyka | Springdoc OpenAPI **3.1.1**, Swagger UI, Spring Boot Actuator. |
+| Frontend | **Angular 21**, **TypeScript 5.9**, Router, HttpClient, Signals i RxJS. |
+| Poczta | Spring Mail oraz **Mailpit** do lokalnego podglądu wiadomości. |
+| Budowanie i uruchamianie | Maven Wrapper **3.9.9**, Node.js **24**, npm, Docker Compose; Nginx serwuje frontend w kontenerze. |
+| Testy | JUnit, Mockito, AssertJ, Testcontainers z PostgreSQL/Mailpit; Vitest dla Angulara. |
+| CI | GitHub Actions — testy, budowanie aplikacji i obrazów Docker. |
 
-`JWT_ISSUER` domyślnie wynosi `tireshop`, `JWT_AUDIENCE` — `tireshop-api`, a `JWT_ACCESS_TOKEN_TTL` — `15m` (dopuszczalne 1s–15m). `CORS_ALLOWED_ORIGINS` to lista originów oddzielonych przecinkiem; profil lokalny dopuszcza `http://localhost:4200`, pozostałe profile nie dopuszczają domyślnie obcych originów. Nie wysyłamy credentials/cookies; Angular może też użyć proxy `/api`.
+## Architektura i organizacja kodu
 
-Zaproszenie pracownika jest ważne 24 godziny, reset hasła 30 minut. Wiadomości lokalne trafiają do Mailpit, bez wysyłki do rzeczywistych odbiorców. Link prowadzi domyślnie do przyszłego frontendu `http://localhost:4200/set-password`; do czasu zbudowania Angulara token można odczytać w Mailpit i przekazać do API opisanego w dokumentacji.
+Backend jest **modularnym monolitem**: jedna aplikacja z domenami kont, katalogu, magazynu, koszyka, zamówień, płatności i audytu. Przepływ żądania prowadzi przez kontroler, serwis i repozytorium do PostgreSQL.
 
-W profilu `external` skonfiguruj także `MAIL_HOST`, `MAIL_PORT`, `MAIL_FROM`, opcjonalnie `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_AUTH`, `MAIL_STARTTLS` oraz `PASSWORD_LINK_URL` (stały adres zaufanego frontendu). Poza lokalnym developmentem przesyłaj JWT wyłącznie przez HTTPS.
+```mermaid
+flowchart LR
+    UI[Angular w przeglądarce] -->|REST /api| API[Spring Boot]
+    API --> DB[(PostgreSQL)]
+    API -->|SMTP| MAIL[Mailpit]
+    SW[Swagger UI] --> API
+```
 
-Wysyłka zaproszeń/resetów jest synchroniczna: brak dostępu do poczty zwraca 503 i wycofuje zmianę tokenu/konta, umożliwiając ponowienie. Te wiadomości nie korzystają z kolejki; trwała kolejka i automatyczne ponowienia dotyczą linków śledzenia zamówień gościa.
+W wersji Docker Nginx udostępnia Angulara i przekazuje `/api/` do backendu. Port `8081` daje również bezpośredni dostęp do API i Swaggera.
 
-## Testy i budowanie
+```text
+TireShop/
+├── backend/                 # Spring Boot, Maven Wrapper, Dockerfile
+│   └── src/
+│       ├── main/java/com/shop/tire/
+│       │   ├── account/     # Konta, adresy, zaproszenia i reset haseł
+│       │   ├── catalog/     # Opony i producenci
+│       │   ├── inventory/   # Stany i ruchy magazynowe
+│       │   ├── cart/        # Koszyki i scalanie
+│       │   ├── order/       # Zakup, realizacja, śledzenie i kolejka poczty
+│       │   ├── payment/     # Symulator płatności
+│       │   ├── audit/       # Dziennik zdarzeń zamówień
+│       │   ├── security/    # JWT i konfiguracja dostępu
+│       │   ├── shared/      # Wspólna obsługa błędów i kontrakty
+│       │   └── demo/        # Opcjonalne dane prezentacyjne
+│       ├── main/resources/db/migration/  # Migracje Flyway
+│       └── test/            # Testy jednostkowe i integracyjne
+├── frontend/                # Angular, testy i konfiguracja Nginx
+├── docs/                    # Kontrakty API i dokumentacja projektu
+├── .github/workflows/ci.yml # Automatyczne sprawdzanie projektu
+├── compose.yaml             # Całe demo
+├── compose.local.yaml       # Usługi do lokalnej pracy nad backendem
+└── AGENTS.md                # Uzgodnione wymagania i zasady backendu
+```
 
-Administrator może przeglądać dziennik utworzenia i anulowania zamówień przez `GET /api/admin/audit-log`, również w Swagger UI. Dostępne są filtr typu zdarzenia i paginacja. [Kontrakt i zasady audytu](docs/audit-api.md).
+Większe domeny mają podpakiety `controller`, `service`, `repository`, `dto`, `entity` i `model`. W razie potrzeby występują także `config`, `event` i `job`. Szczegóły: [struktura backendu](docs/backend-structure.md).
 
-GitHub Actions uruchamia workflow `CI` po pushu do `main` i dla pull requestów. Dwa równoległe zadania sprawdzają backend na Java 25 oraz frontend na Node.js 24. Backend wykonuje Maven `verify`, frontend instaluje zależności przez `npm ci`, uruchamia testy bez trybu obserwowania i buduje Angulara. Po udanych sprawdzeniach każde zadanie buduje odpowiedni obraz Docker. Wyniki są dostępne w zakładce **Actions** repozytorium i przy pull requeście.
+## Najważniejsze rozwiązania techniczne
 
-Testcontainers uruchamia w CI własne kontenery PostgreSQL 17 oraz Mailpit. To odpowiednik osobnej bazy testowej z materiału 05. Workflow korzysta z istniejącej konfiguracji testów i generowanych przez nie sekretów. Pierwszy wynik oraz badge pojawią się po wypchnięciu pliku `.github/workflows/ci.yml` do GitHub. Automatyczne blokowanie scalania wymaga ustawienia tych zadań jako wymaganych kontroli w regułach gałęzi `main`.
+- **SOLID, DRY i YAGNI:** podział odpowiedzialności między warstwy i domeny, wstrzykiwanie zależności przez konstruktor oraz współdzielenie reguł bez tworzenia dodatkowych frameworków.
+- **Nowoczesna Java:** DTO głównie jako rekordy, enumy statusów, prywatne pola encji, `BigDecimal` dla pieniędzy, `Instant` i wstrzykiwany `Clock` dla czasu.
+- **Spójne API:** globalny `@RestControllerAdvice`, odpowiedzi błędów `ProblemDetail` ze stałym `code`, walidacja żądań i odrzucanie nieznanych pól JSON. Encje JPA nie są zwracane bezpośrednio.
+- **JWT zamiast sesji:** access token ważny 15 minut, podpis HS256, bez refresh tokenów. Backend sprawdza także aktualny stan i rolę konta. Wylogowanie unieważnia wszystkie dotychczasowe tokeny danego konta. Hasła są hashowane przez PBKDF2.
+- **Ochrona danych:** kontrola roli i właściciela zasobu. Angular przechowuje JWT w pamięci; odświeżenie strony wymaga ponownego logowania. Koszyk gościa ma osobny token w `sessionStorage`, a zakup i link śledzenia korzystają z odrębnych tokenów dostępu.
+- **Spójność zakupów:** transakcje i blokady w PostgreSQL chronią przed sprzedażą ponad stan. Klucze operacji pozwalają bezpiecznie ponawiać checkout, płatności i zmiany magazynowe. Rezerwacja wszystkich pozycji jest atomowa.
+- **Migracje:** Flyway zarządza schematem, Hibernate sprawdza jego zgodność przez `ddl-auto=validate`. Seed demo jest oddzielony od migracji i nie resetuje danych przy restarcie.
+- **Poczta po zapłacie:** kolejka w PostgreSQL ponawia wysyłkę linków śledzenia do pięciu prób. SMTP działa po zatwierdzeniu transakcji, więc awaria poczty nie cofa płatności. Treść kolejki jest szyfrowana osobnym sekretem.
+- **Zdarzenia i audyt:** `OrderCreated` i `OrderCancelled` zasilają dziennik administratora. Audyt zapisuje się po commit w osobnej transakcji; błąd audytu nie cofa zamówienia. Jest to prosty mechanizm bez ponawiania utraconych wpisów.
 
-Z katalogu `backend`:
+Link śledzenia gościa jest ważny 90 dni i pozwala jedynie odczytać status oraz numer przesyłki. Odnowienie wysyła nowy link na e-mail zapisany w zamówieniu. Zaproszenia pracowników i resetowanie haseł korzystają z osobnych, jednorazowych linków; ich wysyłka jest synchroniczna, poza kolejką śledzenia.
+
+## Praca lokalna
+
+Do edycji backendu potrzebne są **JDK 25** i działający Docker, a do frontendu **Node.js 24** oraz npm. Maven jest dostarczany przez wrapper.
+
+- Backend można uruchomić z IntelliJ przez `com.shop.tire.Application` albo Mavenem. Wymaga ustawienia `JWT_SECRET` i `TRACKING_SECRET`; profil `local` uruchamia PostgreSQL i Mailpit.
+- Frontend uruchamia się z katalogu `frontend` przez `npm ci`, a następnie `npm start`.
+- Proxy Angulara domyślnie wskazuje backend demo na porcie `8081`. Przy backendzie z IntelliJ/Mavena zmień cel w `frontend/proxy.conf.json` na `http://127.0.0.1:8080`.
+
+Pełna instrukcja konfiguracji, generowania sekretów, pierwszego administratora i rozwiązywania problemów: **[praca lokalna i IntelliJ](docs/development.md)**. Obsługa oraz budowanie Angulara: [README frontendu](frontend/README.md).
+
+## Testy i ciągła integracja
+
+Z katalogu `backend`, w PowerShell:
 
 ```powershell
-.\mvnw.cmd verify
+# Pełne sprawdzenie, wymagany działający Docker:
+.\mvnw.cmd clean verify
+
+# Tylko testy jednostkowe, bez Dockera:
+.\mvnw.cmd -Punit test
+
+# Tylko testy integracyjne:
+.\mvnw.cmd -Pintegration verify
 ```
 
-Osobne uruchomienie testów jednostkowych, działające bez Dockera i PostgreSQL, używa `./mvnw.cmd -Punit test`. Same testy integracyjne uruchomisz przez `./mvnw.cmd -Pintegration verify` z działającym Dockerem. Zwykłe `verify`, używane również w CI, wykonuje oba zestawy. Na Linux/macOS użyj `sh ./mvnw` zamiast `./mvnw.cmd`. Profile `unit` i `integration` są profilami Maven; uruchamiaj je osobno. Klasy testów integracyjnych mają nazwy zakończone `IntegrationTests`.
+Na Linux/macOS użyj `sh ./mvnw` zamiast `.\mvnw.cmd`. Profile Maven `unit` i `integration` uruchamiaj osobno. Domyślne `verify` wykonuje oba zestawy.
 
-Testy koszyka i anulowania zamówień używają repozytoriów w pamięci, osobnego stanu dla każdego testu i ustalonego `Clock`. Sprawdzają m.in. dostawę dla 3/4 sztuk różnych produktów, dostępność, scalanie i ponowienia, termin ważności koszyka, właściciela zamówienia oraz jednokrotne zwolnienie rezerwacji. Asercje błędów opierają się na `code`. Sprawdzenie ról Spring Security, transakcji i blokad pozostaje w testach HTTP z PostgreSQL.
+Testy obejmują reguły koszyka i dostawy, JWT i uprawnienia, migracje, rezerwacje, płatności, realizację, audyt i seed. Sprawdzają także ponowienia, rollback, granice czasu i równoległą rywalizację o towar. Testcontainers tworzy izolowane kontenery PostgreSQL i Mailpit; testy nie korzystają z bazy demo. Własne sekrety do testów nie są wymagane. Pełna ścieżka HTTP obejmuje zakup klienta/gościa, pocztę SMTP i restart aplikacji.
 
-Testy HTTP używają osobnego PostgreSQL 17 uruchamianego przez Testcontainers. Wymagają działającego Dockera i nie dotykają lokalnej bazy sklepu. Sprawdzają migracje, JWT (w tym błędne i wygasłe tokeny), brak sesji, uprawnienia, CORS, konta, katalog, magazyn, koszyki, zamówienia, płatności i realizację. Obejmują także ponowienia, rollback i równoległe operacje na stanie. Sekrety są generowane wyłącznie w testach; nie trzeba ustawiać własnego `JWT_SECRET` ani `TRACKING_SECRET`.
+Z katalogu `frontend`:
 
-Większość testów używa profilu `test` i kontrolowanego nadajnika poczty, m.in. do wymuszania awarii SMTP. `MvpJourneyIntegrationTests` uruchamia pełną aplikację w profilu `external` z izolowanymi PostgreSQL i Mailpit, wykonuje zakupy klienta/gościa przez HTTP i sprawdza prawdziwą wysyłkę SMTP. Uruchamia aplikację ponownie na tej samej bazie, aby sprawdzić migracje, trwałość danych, odzyskanie linku i wykonanie zaległych zadań. [Wynik końcowej weryfikacji MVP](docs/mvp-verification.md).
+```sh
+npm ci
+npm test -- --watch=false
+npm run build
+```
 
-`DemoSeedIntegrationTests` sprawdza osobno start profilu demo, logowanie i dane przez HTTP, ponowne wykonanie, zachowanie edycji po restarcie, pierwszeństwo istniejącego bootstrapu oraz rollback przy kolizji konta. Dane testowe pozostają w izolowanych kontenerach.
+[Workflow CI](.github/workflows/ci.yml) uruchamia się po pushu do `main` oraz dla pull requestów. Osobne zadania sprawdzają backend i frontend, a po testach budują ich obrazy Docker. Workflow nie wdraża aplikacji automatycznie. Aktualne wyniki są w zakładce [Actions](https://github.com/stanislaw-kopec/TireShop/actions).
 
-Wynik budowania: `backend/target/demo-0.0.1-SNAPSHOT.jar`. Przy uruchamianiu JAR zapewnij działającą bazę i użyj profilu `external` z właściwymi zmiennymi połączenia.
+## Zakres wersji demonstracyjnej
 
-## IntelliJ — błędy importu Maven i JVM target 5
+Projekt realizuje podstawową ścieżkę działania sklepu. Symulator nie pobiera pieniędzy ani danych kart. Śledzenie pokazuje status ręcznie ustawiany przez pracownika i numer przesyłki, bez połączenia z API kuriera. Zdjęcia produktów są opcjonalnymi adresami HTTPS; nie ma uploadu plików.
 
-Wrapper używa Maven 3.9.9, aby ominąć problem importu Maven 3.10 (`ArtifactHandlerManager`) w IntelliJ. W `pom.xml` jawnie ustawiono kompilację dla Java 25.
+Poza zakresem pozostają m.in. zwroty po zapłacie, faktury PDF, kupony, opinie, wiele magazynów i walut oraz prawdziwa bramka płatności. Domyślna konfiguracja Compose służy do lokalnej prezentacji. Wdrożenie publiczne wymaga własnej konfiguracji sekretów, bazy, poczty i HTTPS.
 
-Po zmianie konfiguracji:
+## Dokumentacja szczegółowa
 
-1. W oknie Maven wybierz **Reload All Maven Projects**.
-2. W **Project Structure → Project** wybierz SDK 25 i poziom języka 25.
-3. W **Settings → Build Tools → Maven** wybierz **Use Maven wrapper**; w **Importing** i **Runner** wybierz JDK projektu (25).
-4. W konfiguracji uruchomienia `Application` pozostaw katalog roboczy projektu (`TireShop`) lub wybierz `backend`.
-
-Jeżeli JDK 25 nie ma na liście IDE, dodaj istniejący katalog `C:\Program Files\Java\jdk-25` przez **Add SDK → JDK**. Nie ustawiaj targetu 5 ani JDK 8 — projekt wymaga JDK 25.
+| Dokument | Zawartość |
+|---|---|
+| [Demo](docs/demo.md) | Dane przykładowe i scenariusz prezentacji. |
+| [Praca lokalna](docs/development.md) | IntelliJ, Maven, konfiguracja i rozwiązywanie problemów. |
+| [Frontend](frontend/README.md) | Obsługa ekranów, komponenty i lokalne uruchomienie. |
+| [Struktura backendu](docs/backend-structure.md) | Domeny, podpakiety i odpowiedzialności. |
+| [Projekt bazy danych](docs/backend-design.md) | Wstępny diagram i uzasadnienia modelu; aktualny schemat określają migracje Flyway. |
+| [Konta i logowanie](docs/backend-api.md) | JWT, profil, adres, zaproszenia i reset hasła. |
+| [Katalog i magazyn](docs/catalog-api.md) | Produkty, filtry, ceny i ruchy magazynowe. |
+| [Koszyk](docs/cart-api.md) | Klient, gość, tokeny i scalanie. |
+| [Zamówienia](docs/order-api.md) | Podsumowanie, checkout, rezerwacja i anulowanie. |
+| [Płatności](docs/payment-api.md) | Próby, wyniki symulatora i ponowienia. |
+| [Śledzenie](docs/tracking-api.md) | Linki gościa i kolejka poczty. |
+| [Realizacja](docs/fulfillment-api.md) | Statusy pracownicze i numery przesyłek. |
+| [Audyt](docs/audit-api.md) | Zdarzenia zamówień i API administratora. |
+| [Zasady z laboratoriów](docs/lab-guidelines.md) | Przełożenie materiałów ExpressJS na Springa. |
+| [Wymagania backendu](AGENTS.md) | Uzgodniony zakres i zasady implementacji. |
