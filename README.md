@@ -12,11 +12,14 @@ Projekt został przygotowany na zajęcia z budowania aplikacji internetowych. Wy
 - [Dane demo i krótki scenariusz prezentacji](#dane-demo-i-krótki-scenariusz-prezentacji)
 - [Funkcjonalności i role](#funkcjonalności-i-role)
 - [Przebieg zakupu i reguły sklepu](#przebieg-zakupu-i-reguły-sklepu)
+- [Jak działa aplikacja od strony backendu](#jak-działa-aplikacja-od-strony-backendu)
 - [Zastosowane technologie](#zastosowane-technologie)
 - [Architektura i organizacja kodu](#architektura-i-organizacja-kodu)
+- [Aktualny diagram bazy danych — ERD](#aktualny-diagram-bazy-danych--erd)
 - [Najważniejsze rozwiązania techniczne](#najważniejsze-rozwiązania-techniczne)
 - [Praca lokalna](#praca-lokalna)
 - [Testy i ciągła integracja](#testy-i-ciągła-integracja)
+- [Scenariusz nagrania demo — do 5 minut](#scenariusz-nagrania-demo--do-5-minut)
 - [Zakres wersji demonstracyjnej](#zakres-wersji-demonstracyjnej)
 - [Dokumentacja szczegółowa](#dokumentacja-szczegółowa)
 
@@ -94,7 +97,7 @@ Poniższe liczby dotyczą świeżej bazy, przed własnymi zakupami i zmianami po
 | 3 zamówienia gości | Dwa opłacone z linkami śledzenia w Mailpit oraz jedno anulowane. |
 | 30 zamówień i 50 wpisów audytu | Paginację zamówień oraz dziennik utworzeń i anulowań z filtrowaniem. |
 
-Proponowana kolejność pokazu:
+Ogólna kolejność poznawania aplikacji (scenariusz filmu z limitem czasu znajduje się w sekcji [nagranie demo](#scenariusz-nagrania-demo--do-5-minut)):
 
 1. **Gość:** wybierz oponę, przejdź przez koszyk i adres do symulatora. Odrzuć próbę, ponów płatność i potwierdź sukces. Otwórz link śledzenia oraz wiadomość w Mailpit.
 2. **Klient:** dodaj sztukę do koszyka gościa i zaloguj się jako `customer@demo.test`. Na świeżym demo scalenie z trzema zapisanymi sztukami daje cztery sztuki i darmową dostawę. Pokaż też edycję adresu i historię zakupów.
@@ -139,6 +142,39 @@ Najważniejsze reguły:
 - Backend oblicza kwoty i ponownie sprawdza dostępność. Zmiana ceny lub zawartości wymaga zatwierdzenia nowego podsumowania.
 - Zamówienie zachowuje kopię produktów, cen i adresu. Późniejsze zmiany katalogu lub profilu nie zmieniają historii zakupów.
 - Wysłanie wymaga numeru przesyłki. Pracownik może poprawić go przed doręczeniem.
+
+## Jak działa aplikacja od strony backendu
+
+### Od kliknięcia do zapisu w bazie
+
+Przykład: klient zmienia ilość opon w koszyku. Angular wysyła `PUT /api/cart/items/{productId}` z ilością i nagłówkiem `Authorization: Bearer …`. Spring Security sprawdza token oraz rolę. Kontroler waliduje DTO i przekazuje serwisowi identyfikator klienta odczytany z uwierzytelnienia. Serwis sprawdza produkt, cenę i dostępność, a repozytorium zapisuje pozycję koszyka w PostgreSQL. Backend zwraca aktualną zawartość i wyliczone sumy, które Angular wyświetla na ekranie.
+
+```text
+Kliknięcie w Angularze → żądanie HTTP → Spring Security → kontroler i DTO
+→ serwis i reguły biznesowe → repozytorium → PostgreSQL → odpowiedź JSON → widok
+```
+
+Niepoprawne dane, brak uprawnień lub konflikt dostępności kończą się odpowiednim błędem API. Frontend pokazuje komunikat; nie zastępuje kontroli wykonywanych przez backend. Dla gościa osobne endpointy używają tokenu koszyka `X-Cart-Token`, a operacje na zakupie wymagają odrębnego `X-Purchase-Token`.
+
+### Zamówienie, magazyn i płatność
+
+Koszyk zapisuje wybrane produkty i ilości, ale nie zajmuje towaru. Podsumowanie zakupu jest ważne 15 minut. Kliknięcie „Zapłać” ponownie sprawdza podsumowanie i dostępność, tworzy zamówienie oraz rozpoczyna osobną, 15-minutową rezerwację. Jedna transakcja obejmuje wszystkie pozycje; blokady w bazie chronią przed jednoczesnym sprzedaniem tych samych sztuk.
+
+Próba płatności ma własny status, niezależny od realizacji zamówienia. Sukces zatwierdzony przez backend zmienia zamówienie na `PAID`, zmniejsza stan fizyczny i rezerwację oraz dopisuje wydanie magazynowe. Ponowienie tego samego wyniku nie wydaje towaru drugi raz. Anulowanie nieopłaconego zamówienia lub wygaśnięcie terminu zwalnia rezerwację; odrzucona próba płatności pozwala spróbować ponownie w pierwotnym terminie.
+
+Usuwanie pozycji koszyka wykonuje rzeczywiste `DELETE`. Produkt można wycofać z oferty bez usuwania danych potrzebnych do historii. Zamówienia zachowują kopie cen, parametrów i adresu; anulowanie jest zmianą stanu, a nie kasowaniem historii.
+
+### Logowanie i uprawnienia
+
+**Uwierzytelnianie** odpowiada na pytanie „kto wykonuje żądanie”: po poprawnym logowaniu backend wydaje podpisany JWT ważny 15 minut. **Autoryzacja** określa „co ta osoba może zrobić”: klient zarządza swoimi danymi, pracownik magazynem i realizacją, a administrator cenami, ofertą i kontami pracowników. Backend sprawdza również właściciela konkretnego zasobu. Nie ma automatycznego dziedziczenia uprawnień pracownika przez administratora.
+
+### Zdarzenia, zadania w tle i Mailpit
+
+Utworzenie i anulowanie zamówienia publikują zdarzenia Springa. Listener audytu zapisuje wpis po zatwierdzeniu transakcji. Samo użycie zdarzenia lub listenera nie oznacza osobnego wątku: niezależne przetwarzanie w tle zapewniają tu zadania cykliczne, m.in. wysyłka wiadomości i zwalnianie wygasłych rezerwacji.
+
+Po zapłacie gościa zadanie wysyłki linku trafia do `order_email_outbox` w tej samej transakcji co płatność. Scheduler sprawdza kolejkę co 15 sekund, wysyła wiadomość przez SMTP i w razie awarii ponawia ją do limitu pięciu prób. Awaria poczty nie cofa opłaconego zamówienia. Audyt ma prostszy mechanizm: błąd jego zapisu jest izolowany, ale nie ma automatycznego ponowienia utraconego wpisu.
+
+**Mailpit to lokalny serwer SMTP z podglądem wiadomości w przeglądarce.** W demo backend wysyła do niego prawdziwą wiadomość SMTP, a Mailpit ją zatrzymuje zamiast dostarczać do zewnętrznej skrzynki. Adres testowy, np. `pokaz@demo.test`, nie musi istnieć. Pod [localhost:8026](http://localhost:8026) można zobaczyć odbiorcę, treść i otworzyć link śledzenia, zaproszenia lub resetu hasła. Link śledzenia daje gościowi wyłącznie odczyt statusu i numeru przesyłki. Zaproszenia oraz reset haseł są wysyłane synchronicznie, poza kolejką wiadomości o zamówieniach.
 
 ## Zastosowane technologie
 
@@ -198,6 +234,192 @@ TireShop/
 
 Większe domeny mają podpakiety `controller`, `service`, `repository`, `dto`, `entity` i `model`. W razie potrzeby występują także `config`, `event` i `job`. Szczegóły: [struktura backendu](docs/backend-structure.md).
 
+## Aktualny diagram bazy danych — ERD
+
+Model odpowiada migracjom **V1–V11** w [backend/src/main/resources/db/migration](backend/src/main/resources/db/migration). Obejmuje **19 tabel aplikacji**; nie liczymy technicznej tabeli Flyway. Tabele sesji z V2 zostały usunięte przez V3, ponieważ logowanie korzysta z JWT.
+
+Diagram podzielono na obszary dla czytelności; powtórzona nazwa oznacza tę samą tabelę. Pokazano wybrane pola, klucze i powiązania. `PK` oznacza klucz główny, `FK` obcy, `UK` unikalny. `||` oznacza dokładnie jeden, `o|` zero lub jeden, `o{` zero lub wiele, a `|{` jeden lub wiele. Złożony PK tworzą wspólnie pola oznaczone `PK` w jednej tabeli.
+
+### Konta, katalog i stan magazynowy
+
+```mermaid
+erDiagram
+    app_account ||--o| account_address : "adres profilu"
+    app_account ||--o{ account_action_token : "zaproszenie lub reset"
+    manufacturer ||--o{ tire_product : "producent"
+    tire_product ||--|| inventory : "stan tworzony razem z produktem"
+
+    app_account {
+        uuid id PK
+        varchar email UK
+        varchar role
+        varchar status
+        bigint auth_version
+    }
+    account_address {
+        uuid account_id PK, FK
+        varchar recipient_name
+        varchar street
+        varchar city
+    }
+    account_action_token {
+        uuid id PK
+        uuid account_id FK
+        varchar purpose
+        varchar token_hash UK
+        timestamptz expires_at
+    }
+    manufacturer {
+        uuid id PK
+        varchar name
+        varchar normalized_name UK
+    }
+    tire_product {
+        uuid id PK
+        uuid manufacturer_id FK
+        varchar model
+        integer width_mm
+        integer aspect_ratio
+        integer rim_diameter_in
+        varchar season
+        numeric price_gross
+        boolean on_sale
+    }
+    inventory {
+        uuid product_id PK, FK
+        integer on_hand
+        integer reserved
+        bigint version
+    }
+```
+
+Produkt ma jeden stan magazynowy tworzony przez serwis w tej samej transakcji. Dostępność to `on_hand - reserved`; ograniczenie bazy pilnuje `0 <= reserved <= on_hand`. Ten sam wariant producenta, modelu, rozmiaru i sezonu nie może wystąpić drugi raz. Cena może być nieustalona, ale dopuszczenie do sprzedaży wymaga ceny dodatniej.
+
+### Koszyk, zamówienie, płatności i realizacja
+
+```mermaid
+erDiagram
+    app_account o|--o| shopping_cart : "account_id - koszyk konta"
+    app_account o|--o{ shopping_cart : "merged_account_id - odbiorca scalenia"
+    shopping_cart ||--o{ cart_item : "pozycje koszyka"
+    tire_product ||--o{ cart_item : "wybrany produkt"
+    shopping_cart ||--o{ checkout_quote : "podsumowania"
+    app_account o|--o{ checkout_quote : "klient lub gosc"
+    checkout_quote ||--o| customer_order : "najwyzej jedno zamowienie"
+    app_account o|--o{ customer_order : "wlasciciel lub gosc"
+    customer_order ||--|{ order_item : "pozycje zamowienia"
+    tire_product ||--o{ order_item : "produkt z kopia danych"
+    customer_order ||--o{ payment_attempt : "proby platnosci"
+    customer_order ||--o{ order_access_token : "linki sledzenia"
+    order_access_token ||--o| order_email_outbox : "zadanie wysylki"
+    customer_order ||--o{ order_fulfillment_operation : "zmiany realizacji"
+    app_account ||--o{ order_fulfillment_operation : "pracownik"
+    tire_product ||--o{ inventory_change : "ruchy magazynowe"
+    app_account o|--o{ inventory_change : "pracownik lub system"
+    order_item o|--o| inventory_change : "jedno wydanie SALE"
+
+    shopping_cart {
+        uuid id PK
+        uuid account_id FK, UK
+        varchar guest_token_hash UK
+        uuid merged_account_id FK
+        timestamptz expires_at
+    }
+    cart_item {
+        uuid cart_id PK, FK
+        uuid product_id PK, FK
+        integer quantity
+    }
+    checkout_quote {
+        uuid id PK
+        uuid cart_id FK
+        uuid account_id FK
+        jsonb snapshot
+        timestamptz expires_at
+    }
+    customer_order {
+        uuid id PK
+        uuid quote_id FK, UK
+        uuid checkout_key UK
+        uuid account_id FK
+        varchar status
+        jsonb delivery
+        numeric total_gross
+        timestamptz reservation_expires_at
+        varchar tracking_number
+    }
+    order_item {
+        uuid order_id PK, FK
+        uuid product_id PK, FK
+        jsonb product_snapshot
+        integer quantity
+        numeric unit_price_gross
+    }
+    payment_attempt {
+        uuid id PK
+        uuid order_id FK
+        uuid request_key
+        varchar status
+        numeric amount_gross
+    }
+    order_access_token {
+        uuid id PK
+        uuid order_id FK
+        varchar token_hash UK
+        timestamptz expires_at
+    }
+    order_email_outbox {
+        uuid id PK, FK
+        bytea payload
+        varchar status
+        integer attempts
+        timestamptz next_attempt_at
+    }
+    order_fulfillment_operation {
+        uuid id PK
+        uuid order_id FK
+        uuid actor_account_id FK
+        varchar kind
+        varchar from_status
+        varchar to_status
+    }
+    inventory_change {
+        uuid id PK
+        uuid product_id FK
+        uuid actor_account_id FK
+        uuid order_id FK
+        varchar type
+        integer quantity_delta
+    }
+```
+
+Koszyk i zamówienie gościa nie mają właściciela w `app_account`; dostęp opiera się na osobnych losowych tokenach. `merged_account_id` zachowuje wynik scalenia koszyka gościa, aby ponowienie nie podwajało ilości. Zamówienie zawiera co najmniej jedną pozycję, co egzekwuje logika zakupu. Para `(order_id, product_id)` w `inventory_change` jest złożonym FK do `order_item` i jest unikalna dla wydania po zapłacie. Przyjęcia i korekty nie mają `order_id`, a wydanie systemowe nie ma `actor_account_id`.
+
+Jedno zamówienie może mieć wiele prób płatności, ale indeksy częściowe dopuszczają najwyżej jedną próbę oczekującą i jedną udaną. `order_fulfillment_operation` zapisuje wynik operacji pracownika dla bezpiecznych ponowień; nie jest pełną historią wszystkich statusów zamówienia.
+
+### Audyt i pozostałe tabele techniczne
+
+```mermaid
+erDiagram
+    audit_log {
+        uuid id PK
+        varchar event_type
+        timestamptz occurred_at
+        jsonb payload
+    }
+    tracking_request_limit {
+        varchar key_hash PK
+        timestamptz window_start
+        integer requests
+    }
+    demo_seed_history {
+        varchar name PK
+        timestamptz applied_at
+    }
+```
+
+Te trzy tabele nie mają FK do pozostałych tabel, dlatego nie łączymy ich sztucznymi relacjami. `audit_log` przechowuje w `payload` identyfikator zamówienia i wykonawcy oraz, przy anulowaniu, powód. `tracking_request_limit` ogranicza żądania odnowienia linku także dla nieistniejących numerów zamówień. `demo_seed_history` pamięta zastosowane wersje danych demo, aby restart ich nie odtwarzał. Historyczne decyzje projektowe opisuje [backend-design.md](docs/backend-design.md); aktualny model podsumowuje powyższy ERD, a pełną definicję określają migracje.
+
 ## Najważniejsze rozwiązania techniczne
 
 - **SOLID, DRY i YAGNI:** podział odpowiedzialności między warstwy i domeny, wstrzykiwanie zależności przez konstruktor oraz współdzielenie reguł bez tworzenia dodatkowych frameworków.
@@ -253,6 +475,91 @@ npm run build
 
 [Workflow CI](.github/workflows/ci.yml) uruchamia się po pushu do `main` oraz dla pull requestów. Osobne zadania sprawdzają backend i frontend, a po testach budują ich obrazy Docker. Workflow nie wdraża aplikacji automatycznie. Aktualne wyniki są w zakładce [Actions](https://github.com/stanislaw-kopec/TireShop/actions).
 
+## Scenariusz nagrania demo — do 5 minut
+
+Plan zakłada **4 minuty 45 sekund treści i 15 sekund zapasu**. Film ma pokazać działające funkcje oraz krótko wyjaśnić architekturę, model danych, przepływ żądania, logowanie, uprawnienia i regułę biznesową. Nie trzeba nagrywać każdego endpointu ani wszystkich wariantów zakupu.
+
+### Przygotowanie przed włączeniem nagrywania
+
+1. Uruchom `docker compose up` wcześniej. Po zmianach kodu użyj `docker compose up --build` i poczekaj na gotowość aplikacji. Budowania ani pobierania zależności nie wliczaj do filmu.
+2. Przygotuj karty: sklep jako gość, formularz logowania klienta, panel pracownika, panel administratora, [Mailpit](http://localhost:8026), README z ERD i [Swagger](http://localhost:8081/swagger-ui/index.html). Do personelu zaloguj się kilka minut przed nagraniem. Nie odświeżaj tych kart przez F5 — JWT jest w pamięci aplikacji, więc odświeżenie wymaga ponownego logowania.
+3. W koszyku gościa przygotuj jedną sztukę dodatkowej opony. Podczas filmu dodasz trzy sztuki innego modelu, usuniesz przygotowaną pozycję i zmienisz pozostałą ilość z trzech na cztery. W ten sposób pokażesz dodawanie, edycję i usuwanie danych oraz próg darmowej dostawy.
+4. Sprawdź dostępność przynajmniej czterech sztuk wybranego modelu. Przygotuj fikcyjne dane do szybkiego wpisania: `pokaz@demo.test`, telefon `500600700`, Jan Kowalski, Testowa 10, `00-001`, Warszawa, kraj `PL`. Numer mieszkania może pozostać pusty. Hasło kont odczytaj z `.demo/password.txt` poza nagraniem.
+5. Dla pracownika przygotuj zamówienie `PAID` i znajdź produkt `Demo 16`. Dla administratora otwórz edycję dowolnej opony. Sprawdź, gdzie jest opłacone zamówienie konta `history@demo.test` z 21 próbami płatności. Nie opieraj pokazu na starym `PENDING_PAYMENT`: jego rezerwacja mogła już wygasnąć.
+6. Ustaw czytelne powiększenie przeglądarki i przećwicz przełączanie kart ze stoperem. Każda próba nagrania tworzy prawdziwe dane demonstracyjne; restart ich nie usuwa. Jeśli wybrany model lub zamówienie zmieniło już stan podczas próby, przygotuj kolejny przykład.
+
+### 0:00–0:20 — Cel aplikacji i uruchomienie
+
+**Ekran:** katalog sklepu.
+
+**Powiedz:**
+
+> „TireShop to sklep z oponami, w którym można kupować jako gość lub klient. Frontend działa w Angularze, backend w Spring Boot, a dane zapisuję w PostgreSQL. Cały projekt uruchamia jedna komenda Docker Compose. Pokażę zakup oraz panele klienta, pracownika i administratora.”
+
+### 0:20–0:55 — Filtry, koszyk i reguła dostawy
+
+**Kliknij:** filtr sezonu lub rozmiaru → szczegóły dostępnej opony → dodaj 3 sztuki → koszyk. Usuń przygotowaną wcześniej dodatkową pozycję przyciskiem **Usuń**. Wskaż koszt dostawy dla pozostałych 3 sztuk, następnie zmień ich ilość na 4 i zatwierdź zmianę.
+
+**Powiedz:**
+
+> „Katalog ma filtry i sortowanie. W koszyku mogę dodawać, zmieniać ilości i usuwać pozycje. Po usunięciu dodatkowej pozycji mam trzy sztuki i dostawę za 20 zł. Zmieniam ilość na cztery — dostawa jest darmowa. Kwoty i dostępność sprawdza backend.”
+
+### 0:55–1:55 — Zakup gościa i symulator płatności
+
+**Kliknij:** **Przejdź dalej → Kup jako gość**. Uzupełnij przygotowany adres i kontakt → **Pokaż podsumowanie → Zapłać**. W symulatorze wybierz **Odrzuć płatność → Ponów płatność → Zatwierdź płatność**. Pokaż potwierdzenie i numer zamówienia.
+
+**Powiedz podczas wypełniania i przechodzenia między ekranami:**
+
+> „Gość podaje dane dostawy bez zakładania konta. Podsumowanie pokazuje pełną kwotę. Dopiero kliknięcie Zapłać tworzy zamówienie i rezerwuje towar na 15 minut. Symulator nie pobiera pieniędzy. Odrzucam pierwszą próbę i ponawiam płatność. Sukces potwierdza backend; ponowienie nie może wydać towaru drugi raz.”
+
+### 1:55–2:30 — Logowanie klienta i historia
+
+**Kliknij w osobnej karcie:** zaloguj `history@demo.test` → **Moje konto → Historia zamówień** → przygotowane zamówienie `PAID` → **Pokaż historię płatności**. Wskaż różne wyniki prób i przycisk kolejnej strony.
+
+**Powiedz:**
+
+> „Po zalogowaniu klient widzi własne dane i zamówienia. Historia płatności rozróżnia odrzucenia, anulowania i sukces, a listy mają paginację. Logowanie wydaje JWT ważny 15 minut. Backend sprawdza zarówno rolę, jak i właściciela zamówienia, więc klient nie może odczytać cudzych zakupów.”
+
+### 2:30–2:55 — Wiadomość w Mailpit i link gościa
+
+**Kliknij:** karta Mailpit → najnowsza wiadomość do `pokaz@demo.test` → link śledzenia. Wskaż odbiorcę wiadomości i status na stronie śledzenia.
+
+**Powiedz:**
+
+> „Mailpit przechwytuje lokalnie wiadomości wysyłane przez SMTP. Adres odbiorcy nie musi być prawdziwą skrzynką. Po zapłacie wiadomość trafia do kolejki i jest wysyłana w tle. Z tego linku gość może odczytać status bez logowania; sam numer zamówienia nie wystarcza.”
+
+Jeżeli wiadomość jeszcze nie dotarła, przejdź do panelu pracownika i wróć do Mailpit w czasie zapasu. Scheduler sprawdza kolejkę co 15 sekund. Możesz też pokazać wcześniej przygotowaną wiadomość demo, wyraźnie wskazując, że dotyczy innego, wcześniejszego zamówienia.
+
+### 2:55–3:35 — Pracownik: realizacja i magazyn
+
+**Kliknij:** w przygotowanym zamówieniu `PAID` wybierz **Rozpocznij realizację**, wpisz numer `DEMO-2026-001` i kliknij **Oznacz jako wysłane**. Następnie pokaż **Opony → Demo 16 → Pokaż historię magazynu**.
+
+**Powiedz:**
+
+> „Pracownik realizuje opłacone zamówienia. Wysłanie wymaga numeru przesyłki, a backend pilnuje kolejności statusów. Pracownik zarządza także parametrami i stanem opon, ale nie cenami. Historia magazynu pokazuje przyjęcia, korekty i wydania po zapłacie.”
+
+### 3:35–4:05 — Administrator: cena i audyt
+
+**Kliknij:** w przygotowanej edycji opony zmień cenę, np. na `299,00`, i kliknij **Zapisz cenę**. Wskaż przycisk dopuszczenia lub wycofania ze sprzedaży. Wróć do panelu → **Dziennik zdarzeń** → filtr anulowanych zamówień.
+
+**Powiedz:**
+
+> „Administrator ustala cenę i dopuszczenie do sprzedaży. Może również tworzyć konta pracowników i inicjować reset hasła. Dziennik zdarzeń pokazuje utworzenia i anulowania zamówień. Zmiana ceny produktu nie zmienia kwot historycznych zakupów.”
+
+### 4:05–4:45 — ERD, przepływ żądania i testy
+
+**Pokaż:** drugi fragment ERD w tym README, następnie przygotowany Swagger. W diagramie wskaż `customer_order`, `order_item`, `tire_product` i `payment_attempt`; w Swaggerze grupy endpointów i **Authorize**. Nie wpisuj tokenu na nagraniu.
+
+**Powiedz:**
+
+> „Model łączy konto, koszyk, produkty, zamówienia i płatności. Zamówienie ma pozycje z kopią cen i może mieć wiele prób płatności. Backend jest modularnym monolitem: kontroler przyjmuje i waliduje żądanie, serwis wykonuje reguły biznesowe, a repozytorium zapisuje dane. Transakcje i blokady chronią magazyn. API dokumentuje Swagger, schemat wersjonuje Flyway, a testy jednostkowe i integracyjne sprawdzają reguły, uprawnienia oraz równoczesne zakupy.”
+
+### 4:45–5:00 — Zapas i koniec nagrania
+
+Zostaw ten czas na opóźnione przełączenie ekranu lub powrót do wiadomości. Nie rozpoczynaj kolejnego scenariusza. Jeśli film jest już kompletny, zakończ go przed pięcioma minutami. Przy przekroczeniu planu skróć pokaz historii magazynu i audytu; zachowaj zakup, logowanie, role, Mailpit i wyjaśnienie backendu. Nie czekaj na wygaśnięcie 15-minutowej rezerwacji i nie wykonuj dodatkowo całej rejestracji lub resetu hasła.
+
+Po nagraniu sprawdź czytelność tekstu i dźwięku oraz długość filmu. Do oddania dołącz link do nagrania i repozytorium wraz z identyfikatorem ostatecznego commita lub tagu. Nie utożsamiaj bieżącego commita z wersją do oddania, dopóki nie zapiszesz wszystkich końcowych poprawek.
+
 ## Zakres wersji demonstracyjnej
 
 Projekt realizuje podstawową ścieżkę działania sklepu. Symulator nie pobiera pieniędzy ani danych kart. Śledzenie pokazuje status ręcznie ustawiany przez pracownika i numer przesyłki, bez połączenia z API kuriera. Zdjęcia produktów są opcjonalnymi adresami HTTPS; nie ma uploadu plików.
@@ -267,7 +574,8 @@ Poza zakresem pozostają m.in. zwroty po zapłacie, faktury PDF, kupony, opinie,
 | [Praca lokalna](docs/development.md) | IntelliJ, Maven, konfiguracja i rozwiązywanie problemów. |
 | [Frontend](frontend/README.md) | Obsługa ekranów, komponenty i lokalne uruchomienie. |
 | [Struktura backendu](docs/backend-structure.md) | Domeny, podpakiety i odpowiedzialności. |
-| [Projekt bazy danych](docs/backend-design.md) | Wstępny diagram i uzasadnienia modelu; aktualny schemat określają migracje Flyway. |
+| [Aktualny ERD](#aktualny-diagram-bazy-danych--erd) | Bieżące 19 tabel, klucze i relacje zgodne z migracjami V1–V11. |
+| [Projekt bazy danych](docs/backend-design.md) | Historyczne decyzje i uzasadnienia modelu; aktualny ERD znajduje się w tym README. |
 | [Konta i logowanie](docs/backend-api.md) | JWT, profil, adres, zaproszenia i reset hasła. |
 | [Katalog i magazyn](docs/catalog-api.md) | Produkty, filtry, ceny i ruchy magazynowe. |
 | [Koszyk](docs/cart-api.md) | Klient, gość, tokeny i scalanie. |
