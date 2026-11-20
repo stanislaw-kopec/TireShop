@@ -13,6 +13,29 @@ Aplikacja webowa umożliwiająca zakup opon jako gość lub zalogowany klient. A
 - **API:** REST, Jakarta Bean Validation, globalna obsługa błędów przez ProblemDetail, Swagger/OpenAPI.
 - **Uruchomienie i testy:** Docker Compose, Nginx, Mailpit, JUnit, Mockito, Testcontainers, Vitest, GitHub Actions.
 
+## Realizacja kryteriów oceniania
+
+Zestawienie odnosi wymagania na poszczególne oceny do implementacji projektu. Wyższy poziom obejmuje również kryteria niższych poziomów.
+
+| Poziom | Kryterium | Realizacja w TireShop |
+|---|---|---|
+| **3,0** | Backend, REST API, osobna baza i trwały zapis | Spring Boot, API pod `/api`, PostgreSQL w osobnym kontenerze z wolumenem. |
+| **3,0** | Minimum 3 modele i relacja | M.in. konto, produkt, koszyk, zamówienie i płatność; relacje PK/FK przedstawione w [ERD](docs/erd.md). |
+| **3,0** | CRUD, metody i kody HTTP | Tworzenie, odczyt i edycja produktów oraz pozycji koszyka; `DELETE` usuwa pozycję koszyka. Produkt jest wycofywany z oferty, a zamówienia pozostają w historii. |
+| **3,0** | Warstwy, DTO, walidacja i globalne błędy | Kontrolery → serwisy → repozytoria, rekordy DTO, Bean Validation i `@RestControllerAdvice` z `ProblemDetail`. |
+| **3,0** | Reguła biznesowa wykraczająca poza CRUD | Backend sprawdza dostępność i nie pozwala zamówić towaru ponad stan. |
+| **4,0** | Authentication, authorization i minimum 2 role | JWT Bearer, trzy role: CUSTOMER, EMPLOYEE i ADMIN, ograniczenia endpointów oraz kontrola właściciela danych. |
+| **4,0** | Paginacja, filtrowanie i dokumentacja REST API | Stronicowany katalog i historie, filtry opon/statusów/zdarzeń, Swagger i OpenAPI. |
+| **4,0** | Minimum 5 testów jednostkowych i 3 integracyjne API | Ostatni pełny przebieg z 18.11.2026: **52 testy jednostkowe i 83 integracyjne**, bez błędów; obejmują logikę biznesową i rzeczywiste żądania HTTP. |
+| **4,0** | Migracje, konfiguracja i brak sekretów w repozytorium | Flyway i zmienne środowiskowe; sekrety JWT/śledzenia i hasło kont demo są poza Git. **Wyjątek:** konfiguracja zawiera jawne lokalne hasło PostgreSQL, więc kryterium braku haseł nie jest spełnione w całości. |
+| **5,0** | Minimum 5 powiązanych modeli i 3 reguły biznesowe | Spójny model kont, produktów, koszyków, zamówień i płatności; reguły dostawy 3/4 sztuki, rezerwacji 15 minut oraz kolejności statusów i wymaganego numeru przesyłki. |
+| **5,0** | Frontend z API, logowaniem, obsługą danych i błędów | Angular: listy, dodawanie, edycja, usuwanie pozycji koszyka, JWT i komunikaty błędów API. |
+| **5,0** | Mechanizm asynchroniczny i testy najważniejszej logiki | Kolejka e-maili przetwarzana w tle przez scheduler oraz zdarzenia Springa; testy zakupów, płatności, ponowień i współbieżności. |
+| **5,0** | Docker Compose i README z instrukcją uruchomienia | Osobne kontenery backendu, bazy, frontendu i Mailpit; start jedną komendą opisany poniżej. |
+| **5,0** | Przynajmniej jeden działający element rozszerzony | Wysyłka e-maili, scheduler wygasania rezerwacji, optimistic locking encji i pipeline GitHub Actions. |
+
+Wymagane materiały do oceny: link do filmu i repozytorium powyżej, [pełny ERD](docs/erd.md) oraz dokumentacja API poniżej. Konkretny commit stanowiący wersję do oceny jest wskazywany osobno przy oddawaniu projektu.
+
 ## Uruchomienie
 
 Wymagany jest działający Docker z kontenerami Linux i Docker Compose 2.20 lub nowszym oraz wolne porty 4200, 8081 i 8026. Pierwsze budowanie wymaga internetu. Nie trzeba lokalnie instalować Javy, Mavena ani Node.js.
